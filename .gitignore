@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Built app and Swift build output (recreate with ./build_app.sh)
+MeetingTranscriber.app/
+sck-audio/.build/
+launcher/.build/
+
+# macOS
+.DS_Store
+
+# Local config and recordings (never commit these)
+config.toml
+*.wav
+*.m4a
