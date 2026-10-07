@@ -1,0 +1,10 @@
+mlx-whisper
+numpy
+sounddevice
+pyobjc-framework-Quartz
+Pillow
+rumps
+mcp
+pypandoc_binary
+pyobjc-framework-WebKit
+pyobjc-framework-AVFoundation

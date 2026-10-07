@@ -1,0 +1,33 @@
+# Meeting Transcriber settings. Uncomment a line to change it.
+
+# meetings_dir = "~/Documents/Meetings"
+
+# Whisper model. large-v3 is best for Indonesian; the turbo variant is ~4x faster:
+# model = "mlx-community/whisper-large-v3-turbo"
+
+# "auto" = detect Indonesian/English per ~60s chunk. Or "id" / "en".
+# language = "auto"
+
+# Names and terms Whisper should spell correctly (people, products, jargon):
+# vocabulary = ["Budi", "Dina"]
+
+# Labels in the transcript for your mic vs. everyone else (system audio).
+# my_label = "Me"
+# others_label = "Others"
+
+# screenshot_scale = 50          # percent of the screen's real pixel width (100 = full size)
+# auto_summarize = true
+# default_prompt = "default"     # a file name in the prompts/ folder, without .md
+
+# claude_path = ""               # leave empty to auto-detect
+# claude_model = ""              # e.g. "sonnet"; empty = your Claude Code default
+
+# After transcribing, shrink the audio: "aac" (~30 MB/hour), "flac" (lossless) or "off".
+# compress_audio = "aac"
+
+# Also save each summary as summary.docx (Word) with the used screenshots embedded.
+# export_docx = true
+
+# Global hotkeys (modifiers: ctrl, alt, shift, cmd):
+# hotkey_record = "<ctrl>+<alt>+r"
+# hotkey_screenshot = "<ctrl>+<alt>+s"

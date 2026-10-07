@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Settings</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f5f5f7; --panel: #ffffff; --text: #1d1d1f; --muted: #6e6e73; --line: #d2d2d7;
+    --accent: #0a6cff; --accent-text: #ffffff; --danger: #d70015; --ok: #1a7f37; --field: #ffffff;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #1e1e1e; --panel: #2a2a2c; --text: #f5f5f7; --muted: #a1a1a6; --line: #3d3d40;
+            --accent: #3d8bff; --danger: #ff6a6a; --ok: #4cc168; --field: #1c1c1e; }
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body { font: 13px/1.45 -apple-system, BlinkMacSystemFont, "Helvetica Neue", sans-serif; background: var(--bg);
+         color: var(--text); display: flex; flex-direction: column; }
+  nav { display: flex; gap: 4px; padding: 10px 16px 0; border-bottom: 1px solid var(--line); background: var(--panel); }
+  nav button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 14px; font: inherit;
+               color: var(--muted); cursor: pointer; }
+  nav button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  main { flex: 1; overflow: auto; padding: 16px; }
+  .tab { max-width: 680px; margin: 0 auto; }
+  .tab[hidden] { display: none; }
+  fieldset { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); margin: 0 0 14px; padding: 6px 14px 10px; }
+  legend { font-weight: 600; padding: 0 6px; }
+  .row { display: grid; grid-template-columns: minmax(110px, 170px) minmax(0, 1fr); gap: 10px; align-items: start; padding: 7px 0; }
+  .row > * { min-width: 0; }
+  @media (max-width: 560px) { .row { grid-template-columns: minmax(0, 1fr); gap: 2px; } .row > label:first-child { padding-top: 0; }
+                              .prompts { grid-template-columns: minmax(0, 1fr); } }
+  .row > label:first-child { padding-top: 5px; }
+  .hint { color: var(--muted); font-size: 12px; margin-top: 3px; }
+  input[type=text], input[type=number], select, textarea {
+    width: 100%; font: inherit; color: var(--text); background: var(--field); border: 1px solid var(--line);
+    border-radius: 6px; padding: 5px 8px; }
+  input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea { resize: vertical; }
+  .check { display: flex; gap: 8px; align-items: center; padding-top: 4px; }
+  .inline { display: flex; gap: 8px; }
+  .choices label { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
+  .choices .pct { color: var(--muted); }
+  button.btn { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel);
+               color: var(--text); cursor: pointer; }
+  button.btn:hover { filter: brightness(0.97); }
+  button.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-text); }
+  button.danger { color: var(--danger); }
+  button:disabled { opacity: .45; cursor: default; }
+  .keys { font-family: ui-monospace, Menlo, monospace; text-align: center; cursor: pointer; }
+  .keys.recording { border-color: var(--accent); }
+  details { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 8px 14px; margin-bottom: 14px; }
+  summary { font-weight: 600; cursor: pointer; }
+  footer { display: flex; gap: 10px; align-items: center; padding: 10px 16px; border-top: 1px solid var(--line); background: var(--panel); }
+  #status { flex: 1; color: var(--muted); }
+  #status.ok { color: var(--ok); } #status.err { color: var(--danger); }
+  /* prompts */
+  .prompts { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 14px; height: 100%; min-height: 420px; }
+  .list { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); overflow: auto; padding: 4px; }
+  .list button { display: block; width: 100%; text-align: left; border: 0; background: none; font: inherit; color: var(--text);
+                 padding: 7px 10px; border-radius: 6px; cursor: pointer; }
+  .list button[aria-current="true"] { background: var(--accent); color: var(--accent-text); }
+  .list .tag { font-size: 11px; opacity: .7; margin-left: 6px; }
+  .editor { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .editor textarea { flex: 1; min-height: 300px; font: 12.5px/1.5 ui-monospace, Menlo, monospace; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .actions .grow { flex: 1; }
+  dialog { border: 1px solid var(--line); border-radius: 12px; background: var(--panel); color: var(--text); padding: 18px; max-width: 420px; }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog h3 { margin: 0 0 6px; font-size: 14px; }
+  dialog p { margin: 0 0 12px; color: var(--muted); white-space: pre-wrap; }
+  dialog .actions { justify-content: flex-end; margin-top: 12px; }
+</style>
+</head>
+<body>
+<nav role="tablist">
+  <button role="tab" id="t-general" aria-selected="true" data-tab="general">General</button>
+  <button role="tab" id="t-prompts" aria-selected="false" data-tab="prompts">Prompts</button>
+</nav>
+
+<main>
+  <section class="tab" id="tab-general">
+    <fieldset>
+      <legend>Transcription</legend>
+      <div class="row"><label for="language">Language</label>
+        <div><select id="language">
+          <option value="auto">Auto (Indonesian + English)</option>
+          <option value="id">Indonesian</option><option value="en">English</option></select></div></div>
+      <div class="row"><label for="model">Model</label>
+        <div><select id="model">
+          <option value="mlx-community/whisper-large-v3-mlx">Large-v3 (best quality)</option>
+          <option value="mlx-community/whisper-large-v3-turbo">Large-v3 turbo (faster; downloads on first use)</option></select></div></div>
+      <div class="row"><label for="vocabulary">Names &amp; terms</label>
+        <div><textarea id="vocabulary" rows="3" placeholder="Budi, Dina, Tokopedia"></textarea>
+        <div class="hint">People, products and jargon Whisper should spell correctly. Separate with commas or new lines.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Output</legend>
+      <div class="row"><label for="default_prompt">Summary style</label>
+        <div><select id="default_prompt"></select></div></div>
+      <div class="row"><label>After a meeting</label>
+        <div><label class="check"><input type="checkbox" id="auto_summarize"> Summarize automatically with Claude</label>
+        <label class="check"><input type="checkbox" id="export_docx"> Create a Word document</label></div></div>
+      <div class="row"><label for="compress_audio">Audio files</label>
+        <div><select id="compress_audio">
+          <option value="aac">Compress to AAC (about 30 MB per hour)</option>
+          <option value="flac">Compress to FLAC (lossless, about 110 MB per hour)</option>
+          <option value="off">Keep original WAV (about 230 MB per hour)</option></select></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Transcript names</legend>
+      <div class="row"><label for="my_label">Your microphone</label><div><input type="text" id="my_label" maxlength="30"></div></div>
+      <div class="row"><label for="others_label">Everyone else</label><div><input type="text" id="others_label" maxlength="30"></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Hotkeys</legend>
+      <div class="row"><label>Start / stop recording</label>
+        <div><input type="text" class="keys" id="hotkey_record" readonly></div></div>
+      <div class="row"><label>Take screenshot</label>
+        <div><input type="text" class="keys" id="hotkey_screenshot" readonly>
+        <div class="hint">Click a box, then press the combination (it needs Ctrl, Option, Shift or Command). Esc cancels.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Storage</legend>
+      <div class="row"><label for="meetings_dir">Meetings folder</label>
+        <div><div class="inline"><input type="text" id="meetings_dir" spellcheck="false">
+        <button class="btn" id="choose">Choose…</button><button class="btn" id="openDir">Open</button></div></div></div>
+    </fieldset>
+
+    <details>
+      <summary>Advanced</summary>
+      <div class="row"><label>Screenshot resolution</label>
+        <div><div class="choices" id="screenshot_scale" role="radiogroup"></div>
+        <div class="hint">Relative to your main display's full resolution.</div></div></div>
+      <div class="row"><label for="claude_path">Claude CLI path</label>
+        <div><input type="text" id="claude_path" spellcheck="false" placeholder="Leave empty to detect automatically">
+        <div class="hint" id="claudeFound"></div></div></div>
+      <div class="row"><label for="claude_model">Claude model</label>
+        <div><input type="text" id="claude_model" spellcheck="false" placeholder="Leave empty for your Claude Code default"></div></div>
+    </details>
+  </section>
+
+  <section class="tab" id="tab-prompts" hidden>
+    <div class="prompts">
+      <div class="list" id="promptList"></div>
+      <div class="editor">
+        <div class="hint" id="promptHint">These are the instructions Claude gets when summarizing. Changes take effect on the next summary.</div>
+        <textarea id="promptText" spellcheck="false"></textarea>
+        <div class="actions">
+          <button class="btn primary" id="savePrompt">Save prompt</button>
+          <button class="btn" id="resetPrompt">Reset to default</button>
+          <button class="btn" id="renamePrompt">Rename…</button>
+          <button class="btn danger" id="deletePrompt">Delete…</button>
+          <span class="grow"></span>
+          <button class="btn" id="newPrompt">New prompt…</button>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <span id="status" role="status" aria-live="polite"></span>
+  <button class="btn" id="resetAll">Reset to defaults…</button>
+  <button class="btn primary" id="save">Save settings</button>
+</footer>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <h3 id="dlgTitle"></h3><p id="dlgBody"></p>
+    <input type="text" id="dlgInput" hidden>
+    <div class="actions"><button class="btn" value="cancel" id="dlgCancel">Cancel</button>
+      <button class="btn primary" value="ok" id="dlgOk">OK</button></div>
+  </form>
+</dialog>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const FIELDS = ["language", "model", "compress_audio", "default_prompt", "my_label", "others_label",
+                "meetings_dir", "claude_path", "claude_model"];
+const syncDocx = () => { $("export_docx").disabled = !$("auto_summarize").checked; };
+$("auto_summarize").addEventListener("change", syncDocx);
+const CHECKS = ["auto_summarize", "export_docx"];
+let state = null;            // last snapshot from the app
+let currentPrompt = null;
+const drafts = {};           // unsaved prompt edits, by name
+
+// ---- bridge to the app (no network involved: a WebKit message handler)
+let nextId = 1; const pending = {};
+window.__reply = (id, ok, payload) => { const p = pending[id]; delete pending[id]; if (p) (ok ? p.res(payload) : p.rej(new Error(payload))); };
+function call(op, args = {}) {
+  return new Promise((res, rej) => {
+    const id = nextId++; pending[id] = { res, rej };
+    window.webkit.messageHandlers.bridge.postMessage(JSON.stringify({ id, op, args }));
+  });
+}
+
+function say(text, kind = "") { const s = $("status"); s.textContent = text; s.className = kind; }
+async function run(fn, okText) {
+  try { const r = await fn(); if (okText) say(okText, "ok"); return r; }
+  catch (e) { say(e.message, "err"); return null; }
+}
+
+// ---- dialogs (confirm()/prompt() do nothing in an embedded web view, so we draw our own)
+function ask({ title, body = "", ok = "OK", input = null, danger = false }) {
+  const d = $("dlg"), inp = $("dlgInput");
+  $("dlgTitle").textContent = title; $("dlgBody").textContent = body; $("dlgOk").textContent = ok;
+  $("dlgOk").classList.toggle("danger", danger);
+  inp.hidden = input === null; inp.value = input ?? "";
+  return new Promise((resolve) => {
+    d.addEventListener("close", () => resolve(d.returnValue === "ok" ? (input === null ? true : inp.value) : null), { once: true });
+    d.returnValue = ""; d.showModal(); if (input !== null) inp.focus();
+  });
+}
+
+// ---- tabs
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
+  document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-selected", x === b));
+  $("tab-general").hidden = b.dataset.tab !== "general"; $("tab-prompts").hidden = b.dataset.tab !== "prompts"; say("");
+}));
+
+// ---- hotkey recorder
+const SYMBOL = { ctrl: "⌃", alt: "⌥", shift: "⇧", cmd: "⌘" };
+function prettyKey(spec) {
+  if (!spec) return "";
+  return spec.split("+").map((p) => { const m = p.match(/^<(.+)>$/); const n = m ? m[1] : p;
+    return SYMBOL[n] || (m ? n.toUpperCase() : n.toUpperCase()); }).join("");
+}
+function keySpec(e) {
+  let key = null;
+  if (/^Key[A-Z]$/.test(e.code)) key = e.code.slice(3).toLowerCase();
+  else if (/^Digit[0-9]$/.test(e.code)) key = e.code.slice(5);
+  else if (/^F([1-9]|1[0-9]|20)$/.test(e.code)) key = "<" + e.code.toLowerCase() + ">";
+  if (!key) return null;
+  const mods = [e.ctrlKey && "<ctrl>", e.altKey && "<alt>", e.shiftKey && "<shift>", e.metaKey && "<cmd>"].filter(Boolean);
+  return mods.length ? [...mods, key].join("+") : null;
+}
+for (const id of ["hotkey_record", "hotkey_screenshot"]) {
+  const el = $(id);
+  el.addEventListener("focus", () => { el.classList.add("recording"); el.value = "Press keys…"; });
+  el.addEventListener("blur", () => { el.classList.remove("recording"); el.value = prettyKey(el.dataset.spec); });
+  el.addEventListener("keydown", (e) => {
+    e.preventDefault();
+    if (e.key === "Escape") { el.blur(); return; }
+    if (["Control", "Alt", "Shift", "Meta"].includes(e.key)) return;
+    const spec = keySpec(e);
+    if (!spec) { say("Use at least one modifier (Ctrl, Option, Shift, Command) with a letter, digit or F-key.", "err"); return; }
+    el.dataset.spec = spec; el.blur(); say("");
+  });
+}
+
+// ---- general settings
+function parseVocab(text) { return text.split(/[\n,]/).map((s) => s.trim()).filter(Boolean); }
+function fill(values) {
+  for (const k of FIELDS) {
+    const el = $(k);
+    if (el.tagName === "SELECT" && ![...el.options].some((o) => o.value === values[k])) {
+      el.add(new Option(values[k] + " (custom)", values[k]));
+    }
+    el.value = values[k] ?? "";
+  }
+  for (const k of CHECKS) $(k).checked = !!values[k];
+  syncDocx();
+  $("vocabulary").value = values.vocabulary.join(", ");
+  const scale = $("screenshot_scale"), px = state.screen_px;
+  scale.innerHTML = "";
+  for (const p of [...new Set([100, 75, 50, 33, 25, values.screenshot_scale])].sort((a, b) => b - a)) {
+    const label = document.createElement("label"), radio = document.createElement("input"), pct = document.createElement("span");
+    radio.type = "radio"; radio.name = "screenshot_scale"; radio.value = p; radio.checked = p === values.screenshot_scale;
+    pct.className = "pct"; pct.textContent = p + "%";
+    if (px) label.append(radio, px.map((n) => Math.round(n * p / 100)).join(" × ") + " px", pct);
+    else label.append(radio, p + "% of the screen");  // display size unknown: no pixels to show
+    scale.append(label);
+  }
+  for (const k of ["hotkey_record", "hotkey_screenshot"]) { $(k).dataset.spec = values[k]; $(k).value = prettyKey(values[k]); }
+}
+function collect() {
+  const v = {};
+  for (const k of FIELDS) v[k] = $(k).value;
+  for (const k of CHECKS) v[k] = $(k).checked;
+  v.vocabulary = parseVocab($("vocabulary").value);
+  v.screenshot_scale = Number(document.querySelector('input[name="screenshot_scale"]:checked')?.value);
+  v.hotkey_record = $("hotkey_record").dataset.spec; v.hotkey_screenshot = $("hotkey_screenshot").dataset.spec;
+  return v;
+}
+function render(snap) {
+  state = snap;
+  const sel = $("default_prompt"); sel.innerHTML = "";
+  for (const p of snap.prompts) sel.add(new Option(p.name, p.name));
+  fill(snap.values);
+  $("claudeFound").textContent = snap.claude_found ? "Detected: " + snap.claude_found : "Claude CLI not found - install it or set the path.";
+  renderPrompts();
+}
+$("save").addEventListener("click", () => run(async () => {
+  render(await call("save_values", { values: collect() }));
+}, "Saved. Hotkeys and menu are updated; other changes apply from the next recording."));
+$("choose").addEventListener("click", () => run(async () => { const p = await call("choose_folder"); if (p) $("meetings_dir").value = p; }));
+$("openDir").addEventListener("click", () => run(() => call("open_folder", { path: $("meetings_dir").value })));
+$("resetAll").addEventListener("click", async () => {
+  if (!(await ask({ title: "Reset settings to defaults?", body: "Language, model, hotkeys, names and the rest go back to their defaults. Your current file is kept as config.toml.bak. Prompts are not affected.", ok: "Reset", danger: true }))) return;
+  run(async () => render(await call("reset_settings")), "Settings reset to defaults.");
+});
+
+// ---- prompts
+function dirty(name) { return name in drafts && drafts[name] !== state.prompts.find((p) => p.name === name)?.text; }
+function renderPrompts() {
+  const list = $("promptList"); list.innerHTML = "";
+  if (!state.prompts.some((p) => p.name === currentPrompt)) currentPrompt = state.prompts[0]?.name ?? null;
+  for (const p of state.prompts) {
+    const b = document.createElement("button");
+    b.textContent = p.name + (dirty(p.name) ? " •" : "");
+    if (p.builtin) { const t = document.createElement("span"); t.className = "tag"; t.textContent = "built-in"; b.append(t); }
+    b.setAttribute("aria-current", p.name === currentPrompt);
+    b.addEventListener("click", () => { stash(); currentPrompt = p.name; renderPrompts(); });
+    list.append(b);
+  }
+  const p = state.prompts.find((x) => x.name === currentPrompt);
+  $("promptText").value = p ? (drafts[p.name] ?? p.text) : "";
+  $("resetPrompt").hidden = !p?.builtin; $("renamePrompt").hidden = !p || p.builtin; $("deletePrompt").hidden = !p || p.builtin;
+}
+function stash() {
+  if (currentPrompt) { const v = $("promptText").value; const orig = state.prompts.find((p) => p.name === currentPrompt)?.text;
+    if (v === orig) delete drafts[currentPrompt]; else drafts[currentPrompt] = v; }
+}
+$("promptText").addEventListener("input", () => { stash(); renderPromptsKeepFocus(); });
+function renderPromptsKeepFocus() { // update the list's unsaved marker without touching the textarea
+  [...$("promptList").children].forEach((b, i) => { const p = state.prompts[i];
+    b.firstChild.textContent = p.name + (dirty(p.name) ? " •" : ""); });
+}
+$("savePrompt").addEventListener("click", () => run(async () => {
+  const name = currentPrompt; render(await call("save_prompt", { name, text: $("promptText").value })); delete drafts[name]; renderPrompts();
+}, "Prompt saved. It is used for the next summary."));
+$("resetPrompt").addEventListener("click", async () => {
+  const name = currentPrompt;
+  if (!(await ask({ title: `Reset "${name}" to its default?`, body: "Your edited version is kept as " + name + ".md.bak.", ok: "Reset", danger: true }))) return;
+  run(async () => { delete drafts[name]; render(await call("reset_prompt", { name })); }, "Prompt reset to default.");
+});
+$("newPrompt").addEventListener("click", async () => {
+  const name = await ask({ title: "New prompt", body: "It starts as a copy of your default prompt.", ok: "Create", input: "" });
+  if (!name) return;
+  run(async () => { stash(); render(await call("new_prompt", { name })); currentPrompt = name.trim(); renderPrompts(); }, "Prompt created.");
+});
+$("renamePrompt").addEventListener("click", async () => {
+  const old = currentPrompt, name = await ask({ title: `Rename "${old}"`, ok: "Rename", input: old });
+  if (!name || name === old) return;
+  run(async () => { const d = drafts[old]; delete drafts[old]; render(await call("rename_prompt", { old, new: name })); currentPrompt = name.trim(); if (d !== undefined) drafts[currentPrompt] = d; renderPrompts(); }, "Renamed.");
+});
+$("deletePrompt").addEventListener("click", async () => {
+  const name = currentPrompt;
+  if (!(await ask({ title: `Delete "${name}"?`, body: "This removes the prompt file.", ok: "Delete", danger: true }))) return;
+  run(async () => { delete drafts[name]; render(await call("delete_prompt", { name })); }, "Deleted.");
+});
+
+// ---- start
+window.start = () => run(async () => render(await call("load")));
+window.addEventListener("load", () => { if (window.webkit?.messageHandlers?.bridge) window.start(); });
+</script>
+</body>
+</html>
