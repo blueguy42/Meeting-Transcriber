@@ -216,10 +216,6 @@ and registers the icon. The app is a thin launcher: it starts `.venv/bin/python 
 folder, so macOS attributes the permissions to the app instead of to Terminal or a bare Python binary.
 Output goes to `~/Library/Logs/MeetingTranscriber.log`.
 
-To change the app icon, replace `assets/icon-source.jpg` (a square image that fills the whole square, since macOS 26 applies its own
-rounded mask), run `.venv/bin/python assets/make_icon.py`, then `./build_app.sh`. The script writes `AppIcon.icns`
-and the menu bar image `menubar.png`.
-
 ### How recording works
 - **Microphone:** `sounddevice` input stream on the default input device, 16 kHz mono, written to `recordings/mic.wav`.
 - **System audio:** the `sck-audio` helper uses ScreenCaptureKit on the first display (all system audio, excluding the app itself) and
