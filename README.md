@@ -92,6 +92,7 @@ The first time you open the app it explains what it needs, then macOS asks for p
 |---|---|
 | Start or stop a recording | Click the menu bar icon, or press **Ctrl + Option + R**. Stopping also processes the meeting. |
 | Take a screenshot while recording | Menu bar, or **Ctrl + Option + S**. The screen under your mouse flashes white to confirm. |
+| Mute your microphone / the system audio | Menu bar, or **Ctrl + Option + M** (microphone) and **Ctrl + Option + N** (system audio). Press again to unmute. This works any time, also before you start recording, and the state carries over to the next recording. While anything is muted the menu bar shows 🔇 with `mic`, `sys` or `mic+sys`, and the recording dot turns orange. Muted audio is replaced with silence before it is saved, so it cannot be recovered. The transcript marks the stretch as `(Me muted)` / `(Me unmuted)`. |
 | Choose how the summary is written | Menu → **Summary style** (remembered next time) |
 | Summarize or re-summarize any meeting | Menu → **Summarize a meeting…**, then pick the meeting's folder |
 | Change settings or edit the summary styles | Menu → **Settings…** (⌘ ,) |
@@ -140,7 +141,7 @@ Each meeting gets its own folder inside `~/Documents/Meetings` (you can change t
   Summarizing again never renames it.
 - Audio is first saved as WAV (safe even if the app crashes), then shrunk to about 30 MB per hour once the transcript is saved and the
   smaller file is verified.
-- The Word file only appears when automatic summarizing is on (see Settings).
+- The Word file is made for every summary (automatic or from the menu) when *Also create a Word document* is on.
 - **Google Docs:** upload `summary.docx` to Google Drive and open it with Google Docs. Images are kept.
 - Older meetings may still have `transcript/transcript.md` and the audio files next to `meta.json`. They keep working.
 
@@ -158,10 +159,11 @@ shortcuts and the menu apply immediately. Other changes apply from the next reco
 | Vocabulary | Names and terms to spell correctly, e.g. *Budi, Dina, Tokopedia* | empty |
 | Your microphone / Everyone else | The speaker names shown in the transcript (they must differ) | Me / Others |
 | Audio compression | AAC (smallest, ~30 MB/hour), FLAC (lossless, ~110 MB/hour) or off (WAV, ~230 MB/hour) | AAC |
-| Summarize automatically with Claude | If off, the app only transcribes. Summarize later from the menu | on |
-| Create a Word document | Also save the summary as `.docx`. Greyed out while automatic summarizing is off | on |
+| When a recording stops: summarize automatically | If off, the app only transcribes. Summarize later from the menu | on |
+| Every summary: also create a Word document | Also save each summary as `.docx`, automatic or manual | on |
 | Default summary style | The style used for automatic summaries | default |
-| Hotkeys | Click the box and press the combination you want (needs at least one modifier key) | Ctrl+Option+R / S |
+| Muting: when the app opens | Start with the microphone and/or system audio muted | both off |
+| Hotkeys | Click the box and press the combination you want (needs at least one modifier key) | Ctrl+Option+R / S / M / N |
 | Meetings folder | Where meetings are saved | `~/Documents/Meetings` |
 | Screenshot resolution (Advanced) | Size of saved screenshots, shown as pixel sizes with the percentage of your screen in grey | 50% |
 | Claude path and model (Advanced) | Leave empty to detect the Claude CLI and use your usual model | empty |
@@ -203,7 +205,7 @@ when it saves. If the file has a typo, you get a notification and the previous s
 | Screenshot error about Screen Recording | Allow the app in System Settings → Privacy & Security, then restart it |
 | A meeting failed to process or summarize | Menu → **Summarize a meeting…**, or run the CLI command below |
 | The summary fails on a very long meeting | See "Very long meetings" above |
-| Other participants are silent in the transcript | The transcript starts with a ⚠ warning when a track was silent. Check the Screen & System Audio Recording permission |
+| Other participants are silent in the transcript | The transcript starts with a ⚠ warning when a track was silent (stretches you muted yourself don't count). Check the Screen & System Audio Recording permission |
 
 ---
 
@@ -224,7 +226,10 @@ Output goes to `~/Library/Logs/MeetingTranscriber.log`.
   `screenshot_scale`, saved as `shots/shot_<seconds>.jpg` (JPEG quality 80). A white flash window confirms each capture.
 - **Hotkeys:** Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission and runs
   callbacks on the main thread.
-- `meta.json` stores the start time, duration and the offsets that align mic, system audio and screenshots.
+- `meta.json` stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
+  `mic_muted` / `system_muted` (muted spans, in seconds from the recording start).
+- **Muting** replaces the audio with silence at the source (zeros in the mic callback; a `--muted` launch flag plus `MUTE`/`UNMUTE` commands on the
+  `sck-audio` helper's stdin). The files keep running, so they stay aligned with the clock and the screenshots.
 
 ### How transcription works
 Each track is cut into bursts of speech and every burst is transcribed on its own with mlx-whisper, with exact
@@ -260,11 +265,12 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 | `my_label`, `others_label` | `Me`, `Others` | speaker names in the transcript; must differ |
 | `compress_audio` | `"aac"` | `"flac"` or `"off"` |
 | `auto_summarize` | `true` | `false` = transcribe only |
-| `export_docx` | `true` | write `summary.docx`; only takes effect when `auto_summarize` is on |
+| `export_docx` | `true` | also write `summary.docx` with every summary, automatic or manual |
 | `default_prompt` | `"default"` | prompt file name without `.md` |
 | `screenshot_scale` | `50` | percent (10–100) of the screen's real pixel size |
 | `claude_path`, `claude_model` | auto, Claude Code's default | |
-| `hotkey_record`, `hotkey_screenshot` | `<ctrl>+<alt>+r` / `<ctrl>+<alt>+s` | modifiers `<ctrl> <alt> <shift> <cmd>` plus a letter, digit or `<f1>`…`<f20>`; must differ |
+| `start_muted_mic`, `start_muted_system` | `false` | start the app with that side muted |
+| `hotkey_record`, `hotkey_screenshot`, `hotkey_mute_mic`, `hotkey_mute_system` | `<ctrl>+<alt>+r` / `s` / `m` / `n` | modifiers `<ctrl> <alt> <shift> <cmd>` plus a letter, digit or `<f1>`…`<f20>`; must differ |
 
 Prompts live in `~/Library/Application Support/MeetingTranscriber/prompts/` (copied from `prompts/` on first run).
 

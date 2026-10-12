@@ -98,12 +98,27 @@
     </fieldset>
 
     <fieldset>
-      <legend>Output</legend>
+      <legend>Muting</legend>
+      <div class="row"><label>When the app opens</label>
+        <div><label class="check"><input type="checkbox" id="start_muted_mic"> Start with the microphone muted</label>
+        <label class="check"><input type="checkbox" id="start_muted_system"> Start with system audio muted</label>
+        <div class="hint">You can mute or unmute at any time, also between meetings, from the menu or with the hotkeys.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Summaries</legend>
+      <div class="row"><label>When a recording stops</label>
+        <div><label class="check"><input type="checkbox" id="auto_summarize"> Summarize it automatically with Claude</label>
+        <div class="hint">If off, only the transcript is made. Use “Summarize a meeting…” in the menu bar when you want a summary.</div></div></div>
+      <div class="row"><label>Every summary</label>
+        <div><label class="check"><input type="checkbox" id="export_docx"> Also create a Word document</label>
+        <div class="hint">Applies to automatic and manual summaries.</div></div></div>
       <div class="row"><label for="default_prompt">Summary style</label>
         <div><select id="default_prompt"></select></div></div>
-      <div class="row"><label>After a meeting</label>
-        <div><label class="check"><input type="checkbox" id="auto_summarize"> Summarize automatically with Claude</label>
-        <label class="check"><input type="checkbox" id="export_docx"> Create a Word document</label></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Audio</legend>
       <div class="row"><label for="compress_audio">Audio files</label>
         <div><select id="compress_audio">
           <option value="aac">Compress to AAC (about 30 MB per hour)</option>
@@ -122,7 +137,11 @@
       <div class="row"><label>Start / stop recording</label>
         <div><input type="text" class="keys" id="hotkey_record" readonly></div></div>
       <div class="row"><label>Take screenshot</label>
-        <div><input type="text" class="keys" id="hotkey_screenshot" readonly>
+        <div><input type="text" class="keys" id="hotkey_screenshot" readonly></div></div>
+      <div class="row"><label>Mute / unmute microphone</label>
+        <div><input type="text" class="keys" id="hotkey_mute_mic" readonly></div></div>
+      <div class="row"><label>Mute / unmute system audio</label>
+        <div><input type="text" class="keys" id="hotkey_mute_system" readonly>
         <div class="hint">Click a box, then press the combination (it needs Ctrl, Option, Shift or Command). Esc cancels.</div></div></div>
     </fieldset>
 
@@ -185,9 +204,7 @@
 const $ = (id) => document.getElementById(id);
 const FIELDS = ["language", "model", "compress_audio", "default_prompt", "my_label", "others_label",
                 "meetings_dir", "claude_path", "claude_model"];
-const syncDocx = () => { $("export_docx").disabled = !$("auto_summarize").checked; };
-$("auto_summarize").addEventListener("change", syncDocx);
-const CHECKS = ["auto_summarize", "export_docx"];
+const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system"];
 let state = null;            // last snapshot from the app
 let currentPrompt = null;
 const drafts = {};           // unsaved prompt edits, by name
@@ -242,7 +259,8 @@ function keySpec(e) {
   const mods = [e.ctrlKey && "<ctrl>", e.altKey && "<alt>", e.shiftKey && "<shift>", e.metaKey && "<cmd>"].filter(Boolean);
   return mods.length ? [...mods, key].join("+") : null;
 }
-for (const id of ["hotkey_record", "hotkey_screenshot"]) {
+const HOTKEYS = ["hotkey_record", "hotkey_screenshot", "hotkey_mute_mic", "hotkey_mute_system"];
+for (const id of HOTKEYS) {
   const el = $(id);
   el.addEventListener("focus", () => { el.classList.add("recording"); el.value = "Press keys…"; });
   el.addEventListener("blur", () => { el.classList.remove("recording"); el.value = prettyKey(el.dataset.spec); });
@@ -267,7 +285,6 @@ function fill(values) {
     el.value = values[k] ?? "";
   }
   for (const k of CHECKS) $(k).checked = !!values[k];
-  syncDocx();
   $("vocabulary").value = values.vocabulary.join(", ");
   const scale = $("screenshot_scale"), px = state.screen_px;
   scale.innerHTML = "";
@@ -279,7 +296,7 @@ function fill(values) {
     else label.append(radio, p + "% of the screen");  // display size unknown: no pixels to show
     scale.append(label);
   }
-  for (const k of ["hotkey_record", "hotkey_screenshot"]) { $(k).dataset.spec = values[k]; $(k).value = prettyKey(values[k]); }
+  for (const k of HOTKEYS) { $(k).dataset.spec = values[k]; $(k).value = prettyKey(values[k]); }
 }
 function collect() {
   const v = {};
@@ -287,7 +304,7 @@ function collect() {
   for (const k of CHECKS) v[k] = $(k).checked;
   v.vocabulary = parseVocab($("vocabulary").value);
   v.screenshot_scale = Number(document.querySelector('input[name="screenshot_scale"]:checked')?.value);
-  v.hotkey_record = $("hotkey_record").dataset.spec; v.hotkey_screenshot = $("hotkey_screenshot").dataset.spec;
+  for (const k of HOTKEYS) v[k] = $(k).dataset.spec;
   return v;
 }
 function render(snap) {

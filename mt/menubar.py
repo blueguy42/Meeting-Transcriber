@@ -88,6 +88,8 @@ class App(rumps.App):
 
         self.m_toggle = rumps.MenuItem("Start recording", callback=self.toggle)
         self.m_shot = rumps.MenuItem("Take screenshot", callback=self.shot)
+        self.m_mic = rumps.MenuItem("Mute microphone", callback=self.toggle_mic)
+        self.m_system = rumps.MenuItem("Mute system audio", callback=self.toggle_system)
         self.m_status = rumps.MenuItem("Idle")
         self.m_perm = rumps.MenuItem("⚠ Permissions needed…", callback=self.fix_permissions)
         self.m_style = rumps.MenuItem("Summary style")
@@ -97,6 +99,8 @@ class App(rumps.App):
             self.m_perm,
             self.m_toggle,
             self.m_shot,
+            self.m_mic,
+            self.m_system,
             None,
             self.m_style,
             rumps.MenuItem("Summarize a meeting…", callback=self.summarize_chosen),
@@ -108,6 +112,9 @@ class App(rumps.App):
             rumps.MenuItem("Quit", callback=self.quit),
         ]
         self.m_shot.set_callback(None)  # disabled until recording
+        self.rec.mic_muted = bool(self.cfg["start_muted_mic"])  # the "when the app opens" setting
+        self.rec.sys_muted = bool(self.cfg["start_muted_system"])
+        self._refresh_mute_items()
         self.m_perm._menuitem.setHidden_(not permissions.missing())
         self._apply_settings()
         self._timer = rumps.Timer(self._tick, 1)
@@ -142,6 +149,8 @@ class App(rumps.App):
         self._refresh_styles()
         show_hotkey(self.m_toggle, self.cfg["hotkey_record"])
         show_hotkey(self.m_shot, self.cfg["hotkey_screenshot"])
+        show_hotkey(self.m_mic, self.cfg["hotkey_mute_mic"])
+        show_hotkey(self.m_system, self.cfg["hotkey_mute_system"])
         self._start_hotkeys()
 
     def _refresh_styles(self):
@@ -230,9 +239,12 @@ class App(rumps.App):
         self.m_perm._menuitem.setHidden_(not permissions.missing())
         if self.rec.recording:
             s = int(time.time() - self.started)
-            self.title = f"🔴 {s // 60:02d}:{s % 60:02d}"
+            # orange + a label instead of red while anything is muted, so it can't go unnoticed
+            self.title = f"{'🟠' if self._muted_names() else '🔴'} {s // 60:02d}:{s % 60:02d}{self._muted_suffix()}"
         elif self.pending:
             self.title = "⏳"
+        elif self._muted_names():
+            self.title = self._muted_suffix().strip()  # a mute is easy to forget between meetings
         else:
             self.title = self._idle_title
 
@@ -245,6 +257,8 @@ class App(rumps.App):
             {
                 self.cfg["hotkey_screenshot"]: lambda: self.shot(None),
                 self.cfg["hotkey_record"]: lambda: self.toggle(None),
+                self.cfg["hotkey_mute_mic"]: lambda: self.toggle_mic(None),
+                self.cfg["hotkey_mute_system"]: lambda: self.toggle_system(None),
             }
         )
         if problems:
@@ -275,6 +289,37 @@ class App(rumps.App):
         except Exception as e:
             notify("Meeting Transcriber", "Error", str(e))
             traceback.print_exc()
+
+    def _muted_names(self):
+        return [n for n, muted in (("mic", self.rec.mic_muted), ("sys", self.rec.sys_muted)) if muted]
+
+    def _muted_suffix(self):
+        names = self._muted_names()
+        return f" 🔇{'+'.join(names)}" if names else ""
+
+    def _refresh_mute_items(self):
+        for item, label, muted in (
+            (self.m_mic, "microphone", self.rec.mic_muted),
+            (self.m_system, "system audio", self.rec.sys_muted),
+        ):
+            item.title = f"Unmute {label}" if muted else f"Mute {label}"
+            item.state = int(muted)
+
+    def _toggle_mute(self, track, label):
+        muted = not (self.rec.mic_muted if track == "mic" else self.rec.sys_muted)
+        if not self.rec.set_muted(track, muted):
+            notify("Meeting Transcriber", f"Can't mute {label}", "The system audio helper isn't responding.")
+            return
+        self._refresh_mute_items()
+        if self.rec.recording:
+            self._status(f"{label.capitalize()} muted - not being recorded" if muted else "Recording…")
+        on_main(self._tick, None)  # update the menu bar title right away
+
+    def toggle_mic(self, _):
+        self._toggle_mute("mic", "microphone")
+
+    def toggle_system(self, _):
+        self._toggle_mute("system", "system audio")
 
     def shot(self, _):
         if not self.rec.recording:

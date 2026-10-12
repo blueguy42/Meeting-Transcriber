@@ -38,9 +38,8 @@ def finish(meeting_dir: Path, cfg: dict, summary: Path, progress=print) -> tuple
 
 
 def make_docx(meeting_dir: Path, cfg: dict, summary: Path, progress=print) -> Path | None:
-    """A failure here never loses the Markdown summary. The Word file is part of the Claude summary
-    feature, so it needs auto_summarize on as well (the Settings window greys the option out otherwise)."""
-    if not (cfg["export_docx"] and cfg["auto_summarize"]):
+    """A failure here never loses the Markdown summary. Applies to every summary, automatic or manual."""
+    if not cfg["export_docx"]:
         return None
     progress("Creating Word document…")
     try:

@@ -70,6 +70,11 @@ class Recorder:
         self._writer: threading.Thread | None = None
         self._proc: subprocess.Popen | None = None
         self.shot_count = 0
+        self.mic_muted = False
+        self.sys_muted = False
+        self._mute_start: dict[str, float | None] = {"mic": None, "system": None}  # wall clock, while muted
+        self._mute_spans: dict[str, list[tuple[float, float]]] = {"mic": [], "system": []}
+        self._mute_lock = threading.Lock()
 
     @property
     def recording(self) -> bool:
@@ -90,6 +95,9 @@ class Recorder:
         self.t0 = time.time()
         self.mic_first = self.sys_first = None
         self.shot_count = 0
+        # mutes are set any time and carry over: one that is on at the start counts from the start
+        self._mute_start = {"mic": self.t0 if self.mic_muted else None, "system": self.t0 if self.sys_muted else None}
+        self._mute_spans = {"mic": [], "system": []}
         try:
             self._start_capture(d)
         except Exception:
@@ -109,7 +117,7 @@ class Recorder:
             self.warn("sck-audio helper not found - recording mic only")
         else:
             self._proc = subprocess.Popen(
-                [str(helper), str(d / RECORDINGS / "system.wav")],
+                [str(helper), str(d / RECORDINGS / "system.wav"), *(["--muted"] if self.sys_muted else [])],
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.DEVNULL,
@@ -128,7 +136,8 @@ class Recorder:
         def cb(indata, frames, time_info, status):
             if self.mic_first is None:
                 self.mic_first = time.time()
-            self._q.put(bytes(indata))
+            # muted: keep the file running (so it stays aligned with the clock) but write silence
+            self._q.put(bytes(indata.nbytes) if self.mic_muted else bytes(indata))
 
         try:
             self._stream = sd.InputStream(samplerate=SR, channels=1, dtype="int16", callback=cb)
@@ -136,6 +145,45 @@ class Recorder:
         except Exception as e:  # no mic permission / no device
             self.warn(f"microphone unavailable: {e}")
             self._stream = None
+
+    # ---- mute: the audio is replaced by silence at the source, so what was said is never saved
+    def _send_helper(self, command: str) -> bool:
+        try:
+            self._proc.stdin.write(command + "\n")
+            self._proc.stdin.flush()
+            return True
+        except (AttributeError, OSError, ValueError):  # no helper, or it has exited
+            return False
+
+    def set_muted(self, track: str, muted: bool) -> bool:
+        """Mute or unmute "mic" or "system", recording or not (it applies to the next recording too).
+        Returns False if the system audio helper is running but can't be reached."""
+        with self._mute_lock:
+            if track == "system":
+                if self.recording and not self._send_helper("MUTE" if muted else "UNMUTE"):
+                    return False
+                self.sys_muted = muted
+            else:
+                self.mic_muted = muted
+            if not self.recording:
+                return True
+            now = time.time()
+            if muted and self._mute_start[track] is None:
+                self._mute_start[track] = now
+            elif not muted and self._mute_start[track] is not None:
+                self._mute_spans[track].append((self._mute_start[track], now))
+                self._mute_start[track] = None
+        return True
+
+    def _mute_meta(self, origin: float, end: float) -> dict:
+        """Mute spans as seconds from the recording origin: the same clock as the transcript timestamps."""
+        out = {}
+        for track in ("mic", "system"):
+            spans = list(self._mute_spans[track])
+            if self._mute_start[track] is not None:  # still muted when recording stopped
+                spans.append((self._mute_start[track], end))
+            out[f"{track}_muted"] = [[round(max(a - origin, 0), 1), round(max(b - origin, 0), 1)] for a, b in spans]
+        return out
 
     def _read_helper(self):
         for line in self._proc.stdout:
@@ -208,12 +256,14 @@ class Recorder:
             self._close()
             firsts = [t for t in (self.mic_first, self.sys_first) if t]
             origin = min(firsts) if firsts else self.t0
+            end = time.time()
             meta = {
                 "started": datetime.fromtimestamp(self.t0).isoformat(timespec="seconds"),
-                "duration": round(time.time() - origin, 1),
+                "duration": round(end - origin, 1),
                 "origin_delay": round(origin - self.t0, 3),  # screenshot clock starts at t0, audio at origin
                 "mic_offset": round(self.mic_first - origin, 3) if self.mic_first else None,
                 "system_offset": round(self.sys_first - origin, 3) if self.sys_first else None,
+                **self._mute_meta(origin, end),
             }
             (d / "meta.json").write_text(json.dumps(meta, indent=2))
         finally:

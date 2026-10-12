@@ -15,7 +15,9 @@ INSTRUCTIONS = """
 The meeting transcript follows. Lines are `[hh:mm:ss] Speaker: text`; "Me" is the mic
 (the user), "Others" is everyone else. Lines like `(screenshot: shots/shot_00754.jpg)` mark
 a screenshot the user took at that moment: open each one with the Read tool, and use what
-is on screen (slides, docs, numbers, names) to improve the notes.
+is on screen (slides, docs, numbers, names) to improve the notes. Lines like `(Me muted)` /
+`(Me unmuted)` mean that side was deliberately not recorded for that stretch: nothing is missing
+by mistake, so don't mention it in the notes.
 
 Screenshot selection: the user may take screenshots impulsively, so judge each one. Use and embed
 only screenshots that add information to the notes (slides, charts, data, documents, decisions
