@@ -14,13 +14,15 @@ from . import config
 LANGUAGES = {"auto", "id", "en"}
 COMPRESSION = {"aac", "flac", "off"}
 MODIFIER = r"<(?:ctrl|alt|shift|cmd)>"
+HOTKEYS = ("hotkey_record", "hotkey_screenshot", "hotkey_mute_mic", "hotkey_mute_system")
 HOTKEY = re.compile(rf"^(?:{MODIFIER}\+)+(?:[a-z0-9]|<f(?:[1-9]|1[0-9]|20)>)$")
 MAX_PROMPT_CHARS = 20_000
 
 # keys the window may read/write
 EDITABLE = [
     "language", "model", "vocabulary", "my_label", "others_label", "compress_audio", "export_docx",
-    "auto_summarize", "default_prompt", "hotkey_record", "hotkey_screenshot", "meetings_dir",
+    "auto_summarize", "default_prompt", "hotkey_record", "hotkey_screenshot",
+    "hotkey_mute_mic", "hotkey_mute_system", "start_muted_mic", "start_muted_system", "meetings_dir",
     "screenshot_scale", "claude_path", "claude_model",
 ]
 
@@ -84,7 +86,7 @@ def _check(key: str, v):
         if v not in COMPRESSION:
             raise ValueError("compress_audio must be aac, flac or off.")
         return v
-    if key in ("export_docx", "auto_summarize"):
+    if key in ("export_docx", "auto_summarize", "start_muted_mic", "start_muted_system"):
         if not isinstance(v, bool):
             raise ValueError(f"{key} must be on or off.")
         return v
@@ -99,7 +101,7 @@ def _check(key: str, v):
         return [x.strip() for x in v]
     if key in ("my_label", "others_label"):
         return text(30)
-    if key in ("hotkey_record", "hotkey_screenshot"):
+    if key in HOTKEYS:
         v = text(60).lower()
         if not HOTKEY.match(v):
             raise ValueError("hotkeys need at least one modifier (ctrl, alt, shift, cmd) plus a key.")
@@ -133,11 +135,11 @@ def save_values(values: dict) -> dict:
     if unknown:
         raise ValueError(f"Unknown setting: {sorted(unknown)[0]}")
     clean = {k: _check(k, v) for k, v in values.items()}
-    if "hotkey_record" in clean or "hotkey_screenshot" in clean:
-        current = config.load()  # a single changed hotkey must not collide with the one not being saved
-        merged = {k: clean.get(k, current[k]) for k in ("hotkey_record", "hotkey_screenshot")}
-        if merged["hotkey_record"] == merged["hotkey_screenshot"]:
-            raise ValueError("The two hotkeys must be different.")
+    if any(k in clean for k in HOTKEYS):
+        current = config.load()  # a single changed hotkey must not collide with the ones not being saved
+        merged = [clean.get(k, current[k]) for k in HOTKEYS]
+        if len(set(merged)) < len(merged):
+            raise ValueError("The hotkeys must all be different.")
     if "my_label" in clean or "others_label" in clean:
         current = config.load()  # equal labels would merge both speakers' transcripts into one
         if clean.get("my_label", current["my_label"]) == clean.get("others_label", current["others_label"]):

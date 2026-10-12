@@ -70,13 +70,22 @@ def envelope(audio: np.ndarray) -> np.ndarray:
     return np.sqrt((audio[: n * FRAME].reshape(n, FRAME) ** 2).mean(axis=1))
 
 
-def speech_regions(env: np.ndarray) -> list[tuple[int, int]]:
+def muted_frames(n: int, offset: float, spans: list) -> np.ndarray:
+    """Boolean mask over envelope frames that fall inside the muted spans (seconds from the recording origin)."""
+    mask = np.zeros(n, dtype=bool)
+    for a, b in spans:
+        mask[max(round((a - offset) * FPS), 0) : max(round((b - offset) * FPS), 0)] = True
+    return mask
+
+
+def speech_regions(env: np.ndarray, muted: np.ndarray | None = None) -> list[tuple[int, int]]:
     """Bursts of speech as (start_frame, end_frame). Each is transcribed on its own so Whisper never
     has to track long silences (a meeting track is mostly silence): timestamps stay exact, nothing is
     lost at 30 s window edges, and the language is detected per burst."""
-    if env.size == 0:
+    live = env if muted is None else env[~muted[: len(env)]]  # muted frames are exact zeros: they say nothing about room noise
+    if live.size == 0:
         return []
-    thr = max(0.004, 3 * float(np.percentile(env, 10)))  # above digital silence / room noise
+    thr = max(0.004, 3 * float(np.percentile(live, 10)))  # above digital silence / room noise
     idx = np.flatnonzero(env > thr)
     if idx.size == 0:
         return []
@@ -206,25 +215,51 @@ def fmt_ts(sec: float) -> str:
     return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
 
 
+def mute_events(muted: dict, duration: float) -> list:
+    """Transcript lines marking when a track was muted, so a silent stretch is not mistaken for a recording fault."""
+    events = []
+    for label, spans in muted.items():
+        for a, b in spans:
+            events.append((a, f"[{fmt_ts(a)}] ({label} muted)"))
+            if b < duration - 0.5:  # a mute that lasted to the end has no unmute
+                events.append((b, f"[{fmt_ts(b)}] ({label} unmuted)"))
+    return events
+
+
+def unmuted(audio: np.ndarray, offset: float, spans: list) -> np.ndarray:
+    """The audio outside the muted spans. Spans are in seconds from the recording origin; the track starts at `offset`."""
+    keep = np.ones(len(audio), dtype=bool)
+    for a, b in spans:
+        keep[max(round((a - offset) * SR), 0) : max(round((b - offset) * SR), 0)] = False
+    return audio[keep]
+
+
 def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) -> Path:
     meta = json.loads((meeting_dir / "meta.json").read_text())
     mine, others = cfg["my_label"], cfg["others_label"]
     tracks: dict[str, tuple[np.ndarray, float]] = {}
-    warnings: list[str] = []
+    notes: list[str] = []
+    muted = {mine: meta.get("mic_muted") or [], others: meta.get("system_muted") or []}
     with tempfile.TemporaryDirectory() as tmp:
         for fname, label, key in (("mic", mine, "mic_offset"), ("system", others, "system_offset")):
             p = find_track(meeting_dir, fname, Path(tmp)) if meta.get(key) is not None else None
             if p is None:
                 continue
             audio = load_wav(p)
-            if len(audio) == 0 or np.sqrt((audio**2).mean()) < SILENT_RMS:
+            heard = unmuted(audio, meta[key], muted[label])  # silence you chose is not a permission problem
+            if muted[label] and len(heard) < SR:
+                notes.append(f"ℹ {label} was muted for the whole recording")
+            elif len(heard) == 0 or np.sqrt((heard**2).mean()) < SILENT_RMS:
                 msg = f"{label} audio was silent - check the Microphone / Screen Recording permission"
-                warnings.append(msg)
+                notes.append(f"⚠ {msg}")
                 progress(msg)
             tracks[label] = (audio, meta[key])
 
     envs = {label: envelope(audio) for label, (audio, _) in tracks.items()}
-    regions = {label: speech_regions(env) for label, env in envs.items()}
+    regions = {
+        label: speech_regions(env, muted_frames(len(env), tracks[label][1], muted[label]) if muted[label] else None)
+        for label, env in envs.items()
+    }
     if mine in tracks and others in tracks:
         # each track starts at its own offset; put the system envelope on the mic's frame grid
         sys_env = align(envs[others], round((tracks[mine][1] - tracks[others][1]) * FPS))
@@ -249,10 +284,11 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
 
     events = sorted(
         [(s["start"], f"[{fmt_ts(s['start'])}] {s['speaker']}: {s['text']}") for s in merged]
-        + [(s["start"], f"[{fmt_ts(s['start'])}] (screenshot: {s['shot']})") for s in shots],
+        + [(s["start"], f"[{fmt_ts(s['start'])}] (screenshot: {s['shot']})") for s in shots]
+        + mute_events(muted, meta["duration"]),
         key=lambda e: e[0],
     )
     out = meeting_dir / "transcript.md"
-    notes = "".join(f"> ⚠ {w}\n" for w in warnings)
-    out.write_text(notes + f"# Transcript ({datetime.fromisoformat(meta['started']):%A %Y-%m-%d %H:%M}, {meta['duration'] / 60:.0f} min)\n\n" + "\n".join(e[1] for e in events) + "\n")
+    header = "".join(f"> {n}\n" for n in notes)
+    out.write_text(header + f"# Transcript ({datetime.fromisoformat(meta['started']):%A %Y-%m-%d %H:%M}, {meta['duration'] / 60:.0f} min)\n\n" + "\n".join(e[1] for e in events) + "\n")
     return out

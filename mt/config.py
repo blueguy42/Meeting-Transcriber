@@ -24,6 +24,11 @@ DEFAULTS = {
     "others_label": "Others",
     "hotkey_screenshot": "<ctrl>+<alt>+s",
     "hotkey_record": "<ctrl>+<alt>+r",
+    # Whether each side starts muted when the app opens (muting works any time, also between meetings).
+    "start_muted_mic": False,
+    "start_muted_system": False,
+    "hotkey_mute_mic": "<ctrl>+<alt>+m",
+    "hotkey_mute_system": "<ctrl>+<alt>+n",
     # Screenshot size as a percentage of the captured screen's real pixel width (100 = full size).
     "screenshot_scale": 50,
     "auto_summarize": True,
@@ -35,7 +40,7 @@ DEFAULTS = {
     # ~110 MB/hour) or "off" (keep ~230 MB/hour WAVs). The WAV is deleted only after the
     # compressed file is verified.
     "compress_audio": "aac",
-    # Also save each summary as summary.docx (Word), with the used screenshots embedded.
+    # Also save every summary (automatic or manual) as summary.docx (Word), with the used screenshots embedded.
     "export_docx": True,
 }
 
