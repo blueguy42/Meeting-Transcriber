@@ -215,6 +215,28 @@ def fmt_ts(sec: float) -> str:
     return f"{sec // 3600:02d}:{sec % 3600 // 60:02d}:{sec % 60:02d}"
 
 
+def label_speakers(segs: list[dict], turns: list, offset: float, base: str) -> list[dict]:
+    """Rename `base` to "<base> 1", "<base> 2"... by who talks most during each segment. turns: (start, end, speaker)
+    in track time (seconds from the start of the track); the segments' times also include the track's offset."""
+    if len({s for _, _, s in turns}) < 2:
+        return segs  # one voice: no point numbering it
+    for seg in segs:
+        a, b = seg["start"] - offset, seg["end"] - offset
+        heard: dict[int, float] = {}
+        for x, y, s in turns:
+            o = min(y, b) - max(x, a)
+            if o > 0:
+                heard[s] = heard.get(s, 0.0) + o
+        if heard:
+            who = max(heard, key=heard.get)
+        else:  # the turn finder missed this one: take the nearest speaker if it is close, else leave it unnumbered
+            near = min(turns, key=lambda t: max(t[0] - b, a - t[1], 0.0))
+            who = near[2] if max(near[0] - b, a - near[1], 0.0) <= 2.0 else None
+        if who is not None:
+            seg["speaker"] = f"{base} {who + 1}"
+    return segs
+
+
 def mute_events(muted: dict, duration: float) -> list:
     """Transcript lines marking when a track was muted, so a silent stretch is not mistaken for a recording fault."""
     events = []
@@ -275,6 +297,20 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
             audio, regions[label], cfg, offset, label, lambda f, label=label: progress(f"Transcribing {label}… {f:.0%}")
         )
     segs[mine] = drop_echo(segs[mine], segs[others])
+    if cfg.get("diarize") and others in tracks and segs[others]:
+        try:
+            from . import diarize
+
+            if not diarize.available():
+                raise RuntimeError("the sherpa-onnx package is not installed (pip install sherpa-onnx)")
+            turns = diarize.diarize(tracks[others][0], cfg.get("diarize_speakers", 0), progress)
+            segs[others] = label_speakers(segs[others], turns, tracks[others][1], others)
+            count = len({s["speaker"] for s in segs[others]})
+            progress(f"Found {count} {others} speaker(s)" if count > 1 else f"{others}: one speaker")
+        except Exception as e:  # never lose the transcript because speakers could not be separated
+            msg = f"Speakers were not told apart: {str(e)[:150]}"
+            notes.append(f"⚠ {msg}")
+            progress(msg)
     merged = sorted(segs[mine] + segs[others], key=lambda s: s["start"])
 
     shots = []

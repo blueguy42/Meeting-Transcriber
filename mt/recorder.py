@@ -56,6 +56,25 @@ def _screen_access() -> bool:
     return False
 
 
+def _make_resampler(src: int, dst: int):
+    """Streaming linear resampler for mono int16 chunks (speech only, so no fancy filter)."""
+    import numpy as np
+
+    step = src / dst
+    state = {"tail": np.zeros(0, dtype=np.float32), "pos": 0.0}
+
+    def run(chunk):
+        x = np.concatenate([state["tail"], chunk.astype(np.float32)])
+        idx = np.arange(state["pos"], len(x) - 1, step)
+        out = np.interp(idx, np.arange(len(x)), x)
+        used = int(idx[-1] // 1) if len(idx) else 0
+        next_pos = (idx[-1] + step if len(idx) else state["pos"]) - used
+        state["tail"], state["pos"] = x[used:], next_pos
+        return out.astype(np.int16)
+
+    return run
+
+
 class Recorder:
     def __init__(self, cfg: dict, on_warning=print):
         self.cfg = cfg
@@ -133,15 +152,32 @@ class Recorder:
         self._writer = threading.Thread(target=self._write_loop, daemon=True)
         self._writer.start()
 
+        resampler = None
+
         def cb(indata, frames, time_info, status):
             if self.mic_first is None:
                 self.mic_first = time.time()
+            pcm = indata[:, 0] if resampler else indata  # fallback path may deliver several channels
+            if resampler:
+                pcm = resampler(pcm)
             # muted: keep the file running (so it stays aligned with the clock) but write silence
-            self._q.put(bytes(indata.nbytes) if self.mic_muted else bytes(indata))
+            self._q.put(bytes(pcm.nbytes) if self.mic_muted else bytes(pcm))
 
         try:
-            self._stream = sd.InputStream(samplerate=SR, channels=1, dtype="int16", callback=cb)
-            self._stream.start()
+            try:
+                self._stream = sd.InputStream(samplerate=SR, channels=1, dtype="int16", callback=cb)
+                self._stream.start()
+            except Exception as e:
+                # CoreAudio (-10851 "Invalid Property Value") rejects 16 kHz on some inputs, e.g. Bluetooth
+                # headsets and aggregate devices. Open it at its own rate and resample ourselves.
+                self.warn(f"microphone rejected {SR} Hz ({e}); retrying at the device rate")
+                if self._stream is not None:
+                    self._stream.close()
+                info = sd.query_devices(kind="input")
+                rate = int(info["default_samplerate"])
+                resampler = _make_resampler(rate, SR)
+                self._stream = sd.InputStream(samplerate=rate, channels=1, dtype="int16", callback=cb)
+                self._stream.start()
         except Exception as e:  # no mic permission / no device
             self.warn(f"microphone unavailable: {e}")
             self._stream = None

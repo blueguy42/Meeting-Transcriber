@@ -18,6 +18,8 @@ a screenshot the user took at that moment: open each one with the Read tool, and
 is on screen (slides, docs, numbers, names) to improve the notes. Lines like `(Me muted)` /
 `(Me unmuted)` mean that side was deliberately not recorded for that stretch: nothing is missing
 by mistake, so don't mention it in the notes.
+"Others 1", "Others 2" and so on are different people on the call (numbered by how much they talk, not by name):
+treat each as one person and use names from the conversation where you can.
 
 Screenshot selection: the user may take screenshots impulsively, so judge each one. Use and embed
 only screenshots that add information to the notes (slides, charts, data, documents, decisions
