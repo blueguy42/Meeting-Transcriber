@@ -157,6 +157,8 @@ shortcuts and the menu apply immediately. Other changes apply from the next reco
 | Language | Auto-detects Indonesian or English as people speak, or force one of them | Auto |
 | Model | The speech-to-text model. The "turbo" version is about 4× faster but slightly less accurate | large-v3 |
 | Vocabulary | Names and terms to spell correctly, e.g. *Budi, Dina, Tokopedia* | empty |
+| Other people: tell them apart | Numbers the other people on the call in the transcript (Others 1, Others 2…), by how much they talk. Downloads about 35 MB the first time and runs on your Mac | on |
+| Other people: how many | Work it out automatically, or set the number of other people if it merges or splits someone | automatic |
 | Your microphone / Everyone else | The speaker names shown in the transcript (they must differ) | Me / Others |
 | Audio compression | AAC (smallest, ~30 MB/hour), FLAC (lossless, ~110 MB/hour) or off (WAV, ~230 MB/hour) | AAC |
 | When a recording stops: summarize automatically | If off, the app only transcribes. Summarize later from the menu | on |
@@ -186,7 +188,11 @@ when it saves. If the file has a typo, you get a notification and the previous s
 - **Microphone:** the app uses whichever microphone macOS has selected when you start recording
   (there is no picker). Switching mid-meeting, for example when AirPods connect, may stall the recording.
 - **Other participants:** the app records everything your Mac plays, from all apps mixed, whatever
-  speakers or headphones you use. All remote participants appear as "Others".
+  speakers or headphones you use. With *Tell them apart* on (the default) the other people are numbered by voice
+  (Others 1, Others 2…, most talkative first); otherwise they all appear as "Others".
+- **Telling people apart** is by voice only, so it can't know names, and it makes mistakes: two similar voices may be
+  merged, one person with a very different tone may be split, and a short remark can land on the wrong person. If the
+  count looks wrong, set *How many* other people in Settings. Overlapping speech goes to whoever talks most in that line.
 - **Echo:** without headphones your mic also hears the speakers. The app detects and drops most of this,
   but headphones give cleaner results, and talking over each other can leak some echo.
 - **Accuracy:** language is detected for each burst of speech, so a switch mid-sentence can garble a
@@ -236,6 +242,12 @@ Each track is cut into bursts of speech and every burst is transcribed on its ow
 timestamps; silence is skipped. Mic bursts whose loudness envelope mirrors the system audio (speaker bleed) are
 dropped before and after transcription. Language is detected per burst (a pause of 1.5 s or more starts a new
 one), limited to `allowed_languages`. Very short bursts reuse the previous burst's language. Roughly 30× faster than real time on Apple Silicon.
+If speaker separation is on, the system track is also run through sherpa-onnx (`mt/diarize.py`): pyannote
+segmentation cuts it into speech turns, which are grouped by voice (3D-Speaker embeddings, CPU, about 25× faster than real
+time). The groups are deliberately too fine; each is averaged into one voiceprint and groups whose voiceprints are
+close (cosine distance below 0.35) are merged, tiny groups first. Each Whisper segment then gets the speaker who talks
+most during it. The two models (about 35 MB) are downloaded to `~/Library/Application Support/MeetingTranscriber/models`
+the first time. If that fails, the transcript is made without numbering and says so at the top.
 The result is `transcript.md`: `[hh:mm:ss] Speaker: text` lines plus `(screenshot: shots/…)` markers.
 
 ### How summarizing works
@@ -262,6 +274,7 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 | `language` | `"auto"` | per-burst detection, or force `"id"` / `"en"` |
 | `allowed_languages` | `["id", "en"]` | languages auto-detection may pick (config file only) |
 | `vocabulary` | `[]` | names/terms to spell correctly |
+| `diarize`, `diarize_speakers` | `true`, `0` | tell the other people apart (Others 1, 2…); `0` = work out how many, or a number up to 12 |
 | `my_label`, `others_label` | `Me`, `Others` | speaker names in the transcript; must differ |
 | `compress_audio` | `"aac"` | `"flac"` or `"off"` |
 | `auto_summarize` | `true` | `false` = transcribe only |
@@ -296,6 +309,7 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 | `mt/menubar.py` | menu bar app, menu actions, permission flow |
 | `mt/recorder.py`, `mt/flash.py` | recording, screenshots, screenshot flash |
 | `mt/transcribe.py`, `mt/audio.py` | Whisper transcription, echo handling, audio compression |
+| `mt/diarize.py` | telling the other people apart (sherpa-onnx) |
 | `mt/pipeline.py`, `mt/summarize.py`, `mt/docx_export.py` | processing flow, Claude summary, Word export |
 | `mt/config.py`, `mt/settings_api.py`, `mt/settings_window.py`, `mt/ui/settings.html` | settings storage, validation and window |
 | `mt/hotkeys.py`, `mt/permissions.py` | global hotkeys, macOS permissions |

@@ -20,6 +20,9 @@ DEFAULTS = {
     "allowed_languages": ["id", "en"],
     # Names/terms Whisper should spell right, e.g. ["Budi", "Dina", "Tokopedia"].
     "vocabulary": [],
+    # Tell the other people in a meeting apart ("Others 1", "Others 2"...). 0 = work out how many; or a number.
+    "diarize": True,
+    "diarize_speakers": 0,
     "my_label": "Me",
     "others_label": "Others",
     "hotkey_screenshot": "<ctrl>+<alt>+s",

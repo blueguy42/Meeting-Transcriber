@@ -127,6 +127,16 @@
     </fieldset>
 
     <fieldset>
+      <legend>Speakers</legend>
+      <div class="row"><label>Other people</label>
+        <div><label class="check"><input type="checkbox" id="diarize"> Tell them apart in the transcript</label>
+        <div class="hint">They are numbered by how much they talk: Others 1, Others 2… The first time, it downloads about 35 MB. Runs on your Mac and adds a few minutes per hour of meeting.</div></div></div>
+      <div class="row"><label for="diarize_speakers">How many</label>
+        <div><select id="diarize_speakers"><option value="0">Work it out automatically</option></select>
+        <div class="hint">If it merges or splits people wrongly, set the number of other people on the call.</div></div></div>
+    </fieldset>
+
+    <fieldset>
       <legend>Transcript names</legend>
       <div class="row"><label for="my_label">Your microphone</label><div><input type="text" id="my_label" maxlength="30"></div></div>
       <div class="row"><label for="others_label">Everyone else</label><div><input type="text" id="others_label" maxlength="30"></div></div>
@@ -204,7 +214,10 @@
 const $ = (id) => document.getElementById(id);
 const FIELDS = ["language", "model", "compress_audio", "default_prompt", "my_label", "others_label",
                 "meetings_dir", "claude_path", "claude_model"];
-const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system"];
+const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system", "diarize"];
+for (let n = 1; n <= 12; n++) $("diarize_speakers").add(new Option(n === 1 ? "1 other person" : n + " other people", String(n)));
+const syncDiarize = () => { $("diarize_speakers").disabled = !$("diarize").checked; };
+$("diarize").addEventListener("change", syncDiarize);
 let state = null;            // last snapshot from the app
 let currentPrompt = null;
 const drafts = {};           // unsaved prompt edits, by name
@@ -285,6 +298,8 @@ function fill(values) {
     el.value = values[k] ?? "";
   }
   for (const k of CHECKS) $(k).checked = !!values[k];
+  $("diarize_speakers").value = String(values.diarize_speakers ?? 0);
+  syncDiarize();
   $("vocabulary").value = values.vocabulary.join(", ");
   const scale = $("screenshot_scale"), px = state.screen_px;
   scale.innerHTML = "";
@@ -303,6 +318,7 @@ function collect() {
   for (const k of FIELDS) v[k] = $(k).value;
   for (const k of CHECKS) v[k] = $(k).checked;
   v.vocabulary = parseVocab($("vocabulary").value);
+  v.diarize_speakers = Number($("diarize_speakers").value);
   v.screenshot_scale = Number(document.querySelector('input[name="screenshot_scale"]:checked')?.value);
   for (const k of HOTKEYS) v[k] = $(k).dataset.spec;
   return v;

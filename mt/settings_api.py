@@ -22,7 +22,7 @@ MAX_PROMPT_CHARS = 20_000
 EDITABLE = [
     "language", "model", "vocabulary", "my_label", "others_label", "compress_audio", "export_docx",
     "auto_summarize", "default_prompt", "hotkey_record", "hotkey_screenshot",
-    "hotkey_mute_mic", "hotkey_mute_system", "start_muted_mic", "start_muted_system", "meetings_dir",
+    "hotkey_mute_mic", "hotkey_mute_system", "start_muted_mic", "start_muted_system", "diarize", "diarize_speakers", "meetings_dir",
     "screenshot_scale", "claude_path", "claude_model",
 ]
 
@@ -86,7 +86,7 @@ def _check(key: str, v):
         if v not in COMPRESSION:
             raise ValueError("compress_audio must be aac, flac or off.")
         return v
-    if key in ("export_docx", "auto_summarize", "start_muted_mic", "start_muted_system"):
+    if key in ("export_docx", "auto_summarize", "start_muted_mic", "start_muted_system", "diarize"):
         if not isinstance(v, bool):
             raise ValueError(f"{key} must be on or off.")
         return v
@@ -115,6 +115,10 @@ def _check(key: str, v):
         if not p.is_absolute():
             raise ValueError("The meetings folder must be an absolute path.")
         return str(v).strip()
+    if key == "diarize_speakers":
+        if isinstance(v, bool) or not isinstance(v, int) or not 0 <= v <= 12:
+            raise ValueError("The number of speakers must be Auto (0) or a whole number up to 12.")
+        return v
     if key == "screenshot_scale":
         if isinstance(v, bool) or not isinstance(v, int) or not 10 <= v <= 100:
             raise ValueError("Screenshot size must be a whole percentage between 10 and 100.")

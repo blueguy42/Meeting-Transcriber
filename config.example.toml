@@ -11,6 +11,11 @@
 # Names and terms Whisper should spell correctly (people, products, jargon):
 # vocabulary = ["Budi", "Dina"]
 
+# Tell the other people in a meeting apart ("Others 1", "Others 2"...), on this Mac. The first time it
+# downloads ~35 MB of models. diarize_speakers = 0 works out how many people there are; or give a number.
+# diarize = true
+# diarize_speakers = 0
+
 # Labels in the transcript for your mic vs. everyone else (system audio).
 # my_label = "Me"
 # others_label = "Others"

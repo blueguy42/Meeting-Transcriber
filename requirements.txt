@@ -1,5 +1,6 @@
 mlx-whisper
 numpy
+sherpa-onnx
 sounddevice
 pyobjc-framework-Quartz
 Pillow
