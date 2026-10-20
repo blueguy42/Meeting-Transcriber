@@ -196,7 +196,11 @@ when it saves. If the file has a typo, you get a notification and the previous s
 - **Echo:** without headphones your mic also hears the speakers. The app detects and drops most of this,
   but headphones give cleaner results, and talking over each other can leak some echo.
 - **Accuracy:** language is detected for each burst of speech, so a switch mid-sentence can garble a
-  few words, and very short or quiet words are sometimes misheard. Add names to *Vocabulary* to help.
+  few words, and very short or quiet words are sometimes misheard. Add names to *Vocabulary* to help; words from the
+  meeting folder's title (the part after " - ") are added automatically.
+- **Made-up text:** Whisper sometimes invents "Terima kasih." or "Thank you." out of silence or noise. Segments that are
+  mostly silent, repeat themselves, or are a lone outro phrase with low confidence are dropped, so a real one-word
+  "thank you" said very quietly could occasionally go missing.
 - **Stopping** can freeze the menu for a few seconds while the audio is closed.
 - **Mac only.** The app has not yet been tested on a real call with live system audio, hotkeys and microphone.
 

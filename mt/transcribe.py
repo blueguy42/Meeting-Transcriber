@@ -23,6 +23,22 @@ SHORT_REGION_S = 4.0  # too short to detect the language reliably: reuse the tra
 ECHO_CORR = 0.6  # envelope correlation between mic and system audio that means "speaker bleed"
 # Whisper often labels Indonesian as these close relatives.
 LANG_MAP = {"ms": "id", "jw": "id", "su": "id"}
+MIN_VOICED = 0.3  # a segment whose audio is mostly below the speech threshold was made up from silence
+MAX_COMPRESSION = 2.4  # above this the text is a repetition loop ("eh eh eh ...")
+# What Whisper "hears" in silence (YouTube outros). Only dropped when the segment is also weak.
+PHANTOM = re.compile(
+    r"^(terima kasih( (telah|sudah) menonton)?|thank you( for watching)?|thanks for watching"
+    r"|sampai jumpa( lagi| di video (selanjutnya|berikutnya))?|bye[- ]?bye|subtitles? by .*|subtitle oleh .*|amara\.org.*)[\s.!]*$",
+    re.I,
+)
+LEADING_HAI = re.compile(r"^hai[,.]?\s+", re.I)  # weak Indonesian bursts often get a spurious "Hai" in front
+TITLE_STOP = {"dan", "yang", "untuk", "dengan", "and", "the", "for", "with", "of", "to", "in"}
+ECHO_WINDOW_S = 3.0  # how far around a mic segment to look for the same words on the system track
+ECHO_COVER = 0.7  # share of a mic segment's content words that the system track said around then
+MERGE_GAP_S = 1.0
+MERGE_MAX_CHARS = 400
+MERGE_MAX_S = 30.0
+MIN_TURN_S = 0.5  # shorter diarization turns are too unreliable to vote on who spoke
 
 
 def transcript_file(meeting_dir: Path) -> Path:
@@ -78,14 +94,20 @@ def muted_frames(n: int, offset: float, spans: list) -> np.ndarray:
     return mask
 
 
-def speech_regions(env: np.ndarray, muted: np.ndarray | None = None) -> list[tuple[int, int]]:
+def speech_threshold(env: np.ndarray, muted: np.ndarray | None = None) -> float | None:
+    """Loudness above digital silence / room noise, or None if there is nothing to judge by."""
+    live = env if muted is None else env[~muted[: len(env)]]  # muted frames are exact zeros: they say nothing about room noise
+    if live.size == 0:
+        return None
+    return max(0.004, 3 * float(np.percentile(live, 10)))
+
+
+def speech_regions(env: np.ndarray, thr: float | None) -> list[tuple[int, int]]:
     """Bursts of speech as (start_frame, end_frame). Each is transcribed on its own so Whisper never
     has to track long silences (a meeting track is mostly silence): timestamps stay exact, nothing is
     lost at 30 s window edges, and the language is detected per burst."""
-    live = env if muted is None else env[~muted[: len(env)]]  # muted frames are exact zeros: they say nothing about room noise
-    if live.size == 0:
+    if thr is None:
         return []
-    thr = max(0.004, 3 * float(np.percentile(live, 10)))  # above digital silence / room noise
     idx = np.flatnonzero(env > thr)
     if idx.size == 0:
         return []
@@ -123,37 +145,79 @@ def is_echo(mic_env: np.ndarray, sys_env: np.ndarray, a: int, b: int) -> bool:
     m = mic_env[a:b]
     if len(m) < 10 or m.std() < 1e-6:
         return False
-    sys_thr = max(0.004, 3 * float(np.percentile(sys_env, 10))) if sys_env.size else 1
+    sys_thr = speech_threshold(sys_env) or 1
     best, lag_max = 0.0, 15  # ±0.3 s for delay between the two capture paths
     for lag in range(-lag_max, lag_max + 1):
         lo, hi = a + lag, b + lag
         if lo < 0 or hi > len(sys_env):
             continue
         s = sys_env[lo:hi]
-        if (s > sys_thr).mean() < 0.6 or s.std() < 1e-6:  # no system speech to bleed from
+        if (s > sys_thr).mean() < 0.5 or s.std() < 1e-6:  # no system speech to bleed from
             continue
         best = max(best, float(np.corrcoef(m, s)[0, 1]))
     return best > ECHO_CORR
 
 
+def _prompt(vocab: list[str]) -> str | None:
+    """A natural code-switched sentence primes Whisper better than a bare list, and keeps its style."""
+    if not vocab:
+        return None
+    terms = ""
+    for v in vocab:
+        if len(terms) + len(v) > 600:  # Whisper's prompt window is ~224 tokens
+            break
+        terms += (", " if terms else "") + v
+    return f"Diskusi tim dalam bahasa Indonesia dan English. Nama dan istilah: {terms}."
+
+
 def _run(mlx_whisper, audio, cfg, language):
-    vocab = cfg["vocabulary"]
     return mlx_whisper.transcribe(
         audio,
         path_or_hf_repo=cfg["model"],
         language=language,
-        initial_prompt=("Names and terms: " + ", ".join(vocab) + ".") if vocab else None,
+        initial_prompt=_prompt(cfg["vocabulary"]),
         condition_on_previous_text=False,
         verbose=None,
     )
 
 
-def _keep(seg) -> bool:
+def voiced_fraction(env: np.ndarray, thr: float, start: float, end: float) -> float:
+    """Share of the envelope frames between start and end (frames, possibly fractional) that are above thr."""
+    a = max(int(start), 0)
+    b = min(max(int(end), a + 1), len(env))
+    return float((env[a:b] > thr).mean()) if b > a else 0.0
+
+
+def clean_segment(seg: dict, voiced: float = 1.0) -> str | None:
+    """The text to keep for a Whisper segment, or None if it is a hallucination. `voiced` is how much of the
+    segment's audio is actually above the speech threshold."""
     text = seg["text"].strip()
     if not text:
-        return False
-    # classic silence hallucinations
-    return not (seg.get("no_speech_prob", 0) > 0.6 and seg.get("avg_logprob", 0) < -1.0)
+        return None
+    lp, ns = seg.get("avg_logprob", 0), seg.get("no_speech_prob", 0)
+    if ns > 0.6 and lp < -1.0:  # classic silence hallucination
+        return None
+    if seg.get("compression_ratio", 0) > MAX_COMPRESSION or voiced < MIN_VOICED:
+        return None
+    if PHANTOM.match(text) and (voiced < 0.6 or lp < -0.5 or ns > 0.3):
+        return None
+    if lp < -0.7:
+        text = LEADING_HAI.sub("", text) or text
+    return text
+
+
+def _confidence(res: dict) -> float:
+    lps = [s.get("avg_logprob", 0) for s in res["segments"]]
+    return sum(lps) / len(lps) if lps else -9.0
+
+
+def _dominant(votes: dict) -> str | None:
+    """The language that clearly carries this track so far (else None)."""
+    total = sum(votes.values())
+    if total < 5:
+        return None
+    lang, n = max(votes.items(), key=lambda kv: kv[1])
+    return lang if n / total >= 0.8 else None
 
 
 def _transcribe_region(mlx_whisper, piece: np.ndarray, cfg: dict, state: dict):
@@ -170,10 +234,18 @@ def _transcribe_region(mlx_whisper, piece: np.ndarray, cfg: dict, state: dict):
             res = _run(mlx_whisper, piece, cfg, det)
         if not short:
             state["lang"] = det
+            votes = state.setdefault("votes", {})
+            main = _dominant(votes)
+            votes[det] = votes.get(det, 0) + 1
+            if main and det != main and _confidence(res) < -0.9:
+                # a shaky "other language" guess on a track that is almost all one language: retry in that one
+                retry = _run(mlx_whisper, piece, cfg, main)
+                if _confidence(retry) > _confidence(res):
+                    res = retry
     return res
 
 
-def transcribe_regions(audio, regions, cfg, offset, speaker, progress=lambda f: None):
+def transcribe_regions(audio, regions, cfg, offset, speaker, progress=lambda f: None, env=None, thr=None):
     import mlx_whisper
 
     out, state = [], {}
@@ -182,32 +254,74 @@ def transcribe_regions(audio, regions, cfg, offset, speaker, progress=lambda f: 
         t0 = a * FRAME
         res = _transcribe_region(mlx_whisper, audio[t0 : b * FRAME], cfg, state)
         for seg in res["segments"]:
-            if _keep(seg):
+            voiced = voiced_fraction(env, thr, a + seg["start"] * FPS, a + seg["end"] * FPS) if env is not None and thr else 1.0
+            text = clean_segment(seg, voiced)
+            if text:
                 out.append(
                     {
                         "start": round(t0 / SR + seg["start"] + offset, 2),
                         "end": round(t0 / SR + seg["end"] + offset, 2),
                         "speaker": speaker,
-                        "text": seg["text"].strip(),
+                        "text": text,
                     }
                 )
     progress(1.0)
     return out
 
 
+def _content_words(text: str) -> list[str]:
+    return [w for w in re.findall(r"\w+", text.lower()) if len(w) > 3]  # short words (yang, kan, ya) match by chance
+
+
 def drop_echo(mine: list[dict], others: list[dict]) -> list[dict]:
-    """Without headphones the mic hears the speakers; drop mic segments that duplicate system audio."""
+    """Without headphones the mic hears the speakers; drop mic segments that duplicate system audio.
+    The bleed is quieter and delayed, so Whisper words it differently: compare against everything the
+    system track said around then, not one segment against one segment. No system speech nearby = never an echo."""
     kept = []
     for m in mine:
-        dup = any(
-            o["start"] < m["end"] + 1
-            and o["end"] > m["start"] - 1
-            and difflib.SequenceMatcher(None, m["text"].lower(), o["text"].lower()).ratio() > 0.6
-            for o in others
-        )
+        near = [o for o in others if o["start"] < m["end"] + ECHO_WINDOW_S and o["end"] > m["start"] - ECHO_WINDOW_S]
+        if not near:
+            kept.append(m)
+            continue
+        text = m["text"].lower()
+        dup = any(difflib.SequenceMatcher(None, text, o["text"].lower()).ratio() > 0.6 for o in near)
+        words = _content_words(text)
+        if not dup and len(words) >= 3:
+            heard = {w for o in near for w in _content_words(o["text"])}
+            pool = list(heard)  # Whisper spells the same bleed differently each time (sebenernya / sebenarnya)
+            dup = sum(w in heard or bool(difflib.get_close_matches(w, pool, 1, 0.8)) for w in words) / len(words) >= ECHO_COVER
         if not dup:
             kept.append(m)
     return kept
+
+
+def merge_segments(segs: list[dict]) -> list[dict]:
+    """Join a speaker's consecutive fragments ("Gimana?" / "Sehat?" / "Gais?") into one line.
+    `segs` must be sorted by start; a line from another speaker in between keeps them apart."""
+    out: list[dict] = []
+    for s in segs:
+        last = out[-1] if out else None
+        if (
+            last
+            and last["speaker"] == s["speaker"]
+            and s["start"] - last["end"] < MERGE_GAP_S
+            and len(last["text"]) + len(s["text"]) < MERGE_MAX_CHARS
+            and s["end"] - last["start"] < MERGE_MAX_S
+        ):
+            last["end"] = max(last["end"], s["end"])
+            last["text"] += " " + s["text"]
+        else:
+            out.append(dict(s))
+    return out
+
+
+def title_terms(meeting_dir: Path) -> list[str]:
+    """Words from the meeting's title (folder "2026-10-20_1030 - Progres & Brainstorming Konten AI"): they are
+    usually what the meeting is about, so Whisper should spell them right."""
+    _, sep, title = meeting_dir.name.partition(" - ")
+    if not sep:
+        return []
+    return [w for w in re.findall(r"[^\W\d_][\w-]*", title) if len(w) > 2 and w.lower() not in TITLE_STOP]
 
 
 def fmt_ts(sec: float) -> str:
@@ -224,6 +338,8 @@ def label_speakers(segs: list[dict], turns: list, offset: float, base: str) -> l
         a, b = seg["start"] - offset, seg["end"] - offset
         heard: dict[int, float] = {}
         for x, y, s in turns:
+            if y - x < MIN_TURN_S:
+                continue
             o = min(y, b) - max(x, a)
             if o > 0:
                 heard[s] = heard.get(s, 0.0) + o
@@ -277,11 +393,15 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
                 progress(msg)
             tracks[label] = (audio, meta[key])
 
+    known = {v.lower() for v in cfg["vocabulary"]}
+    cfg = {**cfg, "vocabulary": list(cfg["vocabulary"]) + [w for w in title_terms(meeting_dir) if w.lower() not in known]}
+
     envs = {label: envelope(audio) for label, (audio, _) in tracks.items()}
-    regions = {
-        label: speech_regions(env, muted_frames(len(env), tracks[label][1], muted[label]) if muted[label] else None)
+    thrs = {
+        label: speech_threshold(env, muted_frames(len(env), tracks[label][1], muted[label]) if muted[label] else None)
         for label, env in envs.items()
     }
+    regions = {label: speech_regions(env, thrs[label]) for label, env in envs.items()}
     if mine in tracks and others in tracks:
         # each track starts at its own offset; put the system envelope on the mic's frame grid
         sys_env = align(envs[others], round((tracks[mine][1] - tracks[others][1]) * FPS))
@@ -294,7 +414,14 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
     for label, (audio, offset) in tracks.items():
         progress(f"Transcribing {label} ({len(regions[label])} speech bursts)…")
         segs[label] = transcribe_regions(
-            audio, regions[label], cfg, offset, label, lambda f, label=label: progress(f"Transcribing {label}… {f:.0%}")
+            audio,
+            regions[label],
+            cfg,
+            offset,
+            label,
+            lambda f, label=label: progress(f"Transcribing {label}… {f:.0%}"),
+            env=envs[label],
+            thr=thrs[label],
         )
     segs[mine] = drop_echo(segs[mine], segs[others])
     if cfg.get("diarize") and others in tracks and segs[others]:
@@ -311,7 +438,7 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
             msg = f"Speakers were not told apart: {str(e)[:150]}"
             notes.append(f"⚠ {msg}")
             progress(msg)
-    merged = sorted(segs[mine] + segs[others], key=lambda s: s["start"])
+    merged = merge_segments(sorted(segs[mine] + segs[others], key=lambda s: s["start"]))
 
     shots = []
     for p in sorted((meeting_dir / "shots").glob("shot_*.jpg")):
