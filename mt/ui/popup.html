@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default;
+    font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: #ececf0; }
+  #wrap { display: inline-flex; align-items: flex-start; gap: 4px; }
+  .card { box-sizing: border-box; background: #2a2b31; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; }
+  .tip { border-radius: 10px; padding: 7px 12px; white-space: nowrap; }
+  .k { color: #a9aab4; margin-left: 8px; }
+  .menu { width: 210px; padding: 6px 0; }
+  .sub { margin-top: 7px; min-width: 170px; padding: 6px 0; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 12px; border-radius: 8px; margin: 0 4px; cursor: pointer; white-space: nowrap; }
+  .row:hover, .row.hov, .row.open { background: rgba(255,255,255,.12); }
+  .sep { height: 1px; background: rgba(255,255,255,.12); margin: 4px 8px; }
+  .status { width: 220px; padding: 12px 14px; }
+  .head { display: flex; align-items: center; justify-content: space-between; margin: -4px -6px 4px 0; min-height: 24px; }
+  .head span { font-size: 12px; color: #a9aab4; }
+  .x { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #a9aab4; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .x:hover, .x.hov { background: rgba(255,255,255,.12); color: #fff; }
+  .step { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: 13px; line-height: 1.3; color: #ececf0; }
+  .step.now { color: #fff; }
+  .step.todo { color: #a9aab4; }
+  .step .ic { flex: none; width: 18px; display: flex; justify-content: center; padding-top: 1px; }
+  .step small { display: block; font-size: 12px; color: #a9aab4; }
+  .kid { display: flex; gap: 8px; align-items: center; margin: 0 0 2px 10px; padding: 3px 0 3px 12px; border-left: 1px solid rgba(255,255,255,.18); font-size: 12px; }
+  .kid.now { color: #fff; }
+  .kid .r { margin-left: auto; color: #a9aab4; }
+  .ring { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #8d8e98; box-sizing: border-box; margin-top: 2px; }
+  .spin { width: 13px; height: 13px; border-radius: 50%; border: 2.5px solid #64a8ff; border-right-color: transparent; box-sizing: border-box; animation: spin 1s linear infinite; margin-top: 1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .job + .job { border-top: 1px solid rgba(255,255,255,.12); margin-top: 8px; padding-top: 8px; }
+  .jname { font-size: 12px; color: #a9aab4; margin-bottom: 2px; }
+  .err { color: #ff8a80; font-size: 12px; line-height: 1.35; padding: 4px 0; }
+  .btns { display: flex; gap: 8px; margin-top: 8px; }
+  .b { flex: 1 1 0; min-width: 0; height: 30px; border: 0; border-radius: 8px; background: rgba(255,255,255,.14); color: #fff; font: inherit; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; white-space: nowrap; }
+  .b:hover, .b.hov { background: rgba(255,255,255,.22); }
+  .b.main { background: #f2f2f5; color: #1e1f24; font-weight: 600; }
+  .b.main:hover, .b.main.hov { background: #fff; }
+  .note { font-size: 12px; color: #a9aab4; margin-top: 6px; line-height: 1.35; }
+  button:focus-visible, .row:focus-visible { outline: 2px solid #64a8ff; outline-offset: 1px; }
+</style>
+</head>
+<body>
+<div id="wrap"></div>
+<script>
+  const wrap = document.getElementById("wrap");
+  let spec = null, subOpen = false, lastSize = "";
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  function post(msg) { window.webkit.messageHandlers.bridge.postMessage(JSON.stringify(msg)); }
+
+  const CHECK = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#30d158" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+  const CHECK_S = CHECK.replace('width="16" height="16"', 'width="14" height="14"');
+  const CLOSE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
+  function icon(state) {
+    return state === "done" ? CHECK : state === "now" ? '<span class="spin"></span>' : '<span class="ring"></span>';
+  }
+
+  function renderTip(s) {
+    return '<div class="card tip">' + esc(s.text) + (s.hotkey ? '<span class="k">' + esc(s.hotkey) + "</span>" : "") + "</div>";
+  }
+
+  function renderMenu(s) {
+    const items = s.items.map((it, i) => {
+      if (it.divider) return '<div class="sep"></div>';
+      const label = esc(it.label), hint = it.hint ? '<span class="k" style="margin:0">' + esc(it.hint) + "</span>" : "";
+      if (it.sub) {
+        return '<div class="row' + (subOpen ? " open" : "") + '" role="menuitem" tabindex="0" data-sub="1"><span>' + label + '</span><span class="k" style="margin:0">' + (s.side === "right" ? "‹" : "›") + "</span></div>";
+      }
+      return '<div class="row" role="menuitem" tabindex="0" data-id="' + esc(it.id) + '"><span>' + label + "</span>" + hint + "</div>";
+    }).join("");
+    const menu = '<div class="card menu" role="menu">' + items + "</div>";
+    let sub = "";
+    if (subOpen) {
+      const it = s.items.find((x) => x.sub);
+      sub = '<div class="card sub" role="menu" >' + it.sub.map((o) =>
+        '<div class="row" role="menuitemradio" tabindex="0" data-id="' + esc(o.id) + '"><span>' + esc(o.label) + "</span><span class=\"k\" style=\"margin:0\">" + (o.checked ? "✓" : "") + "</span></div>").join("") + "</div>";
+    }
+    wrap.style.flexDirection = s.side === "right" ? "row-reverse" : "row";
+    return menu + sub;
+  }
+
+  function renderSteps(job) {
+    return job.steps.map((st) => {
+      const kids = (st.children || []).map((c) =>
+        '<div class="kid ' + c.state + '">' + (c.state === "done" ? CHECK_S : c.state === "now" ? '<span class="spin" style="width:11px;height:11px;border-width:2px"></span>' : '<span class="ring" style="width:11px;height:11px"></span>') +
+        "<span>" + esc(c.label) + '</span><span class="r">' + esc(c.sub || "") + "</span></div>").join("");
+      return '<div class="step ' + st.state + '"><span class="ic">' + icon(st.state) + "</span><div>" + esc(st.label) + (st.sub ? "<small>" + esc(st.sub) + "</small>" : "") + "</div></div>" + kids;
+    }).join("");
+  }
+
+  function renderStatus(s) {
+    const jobs = s.jobs.map((j, i) => {
+      let body;
+      if (j.state === "queued") body = '<div class="step todo"><span class="ic"><span class="ring"></span></span><div>Waiting for the meeting before it</div></div>';
+      else if (j.state === "failed") body = '<div class="err">' + esc(j.error || "Processing failed.") + '</div><div class="btns"><button class="b" data-act="folder" data-job="' + j.id + '">Open folder</button></div>';
+      else if (j.state === "done") body = renderSteps(j) + '<div class="btns"><button class="b main" data-act="summary" data-job="' + j.id + '">Summary</button><button class="b" data-act="folder" data-job="' + j.id + '">Folder</button></div>';
+      else body = renderSteps(j);
+      return '<div class="job"><div class="jname">' + esc(j.name) + "</div>" + body + "</div>";
+    }).join("");
+    const foot = s.canRecord ? '<div class="btns"><button class="b" data-act="record">Start a new recording</button></div>' : "";
+    return '<div class="card status"><div class="head"><span>' + (s.jobs.length > 1 ? s.jobs.length + " meetings" : "Processing") + '</span><button class="x" data-act="close" aria-label="Close status">' + CLOSE + "</button></div>" + jobs + foot +
+      '<div class="note">Meetings are processed one at a time. You can record while they run.</div></div>';
+  }
+
+  window.render = function (s) {
+    if (s.fresh || s.kind !== "menu") subOpen = false;
+    spec = { ...s, fresh: false };
+    hov = null;
+    wrap.innerHTML = s.kind === "tip" ? renderTip(s) : s.kind === "menu" ? renderMenu(s) : renderStatus(s);
+    report();
+  };
+
+  function report() {
+    const r = wrap.getBoundingClientRect();
+    const size = Math.ceil(r.width) + "x" + Math.ceil(r.height);
+    lastSize = size;
+    post({ op: "size", w: Math.ceil(r.width), h: Math.ceil(r.height) });
+  }
+
+  wrap.addEventListener("click", (e) => {
+    const row = e.target.closest(".row, .b, .x");
+    if (!row || !spec) return;
+    if (row.dataset.sub) { if (!subOpen) { subOpen = true; window.render(spec); } return; }
+    if (spec.kind === "menu" && row.dataset.id) post({ op: "menu_click", id: row.dataset.id });
+    else if (row.dataset.act) post({ op: "status_" + row.dataset.act, id: row.dataset.job ? Number(row.dataset.job) : null });
+  });
+  // hovering "Summary style" opens its submenu; hovering any other menu row closes it
+  let hov = null;
+  function hoverRow(row) {
+    if (row === hov) return;
+    if (hov) hov.classList.remove("hov");
+    hov = row;
+    if (row) row.classList.add("hov");
+    if (!spec || spec.kind !== "menu" || !row || row.closest(".sub")) return;
+    const want = !!row.dataset.sub;
+    if (want !== subOpen) { subOpen = want; window.render(spec); }
+  }
+  // Python reports the mouse position because WebKit does not track it while the panel is not key
+  window.__hover = function (x, y) {
+    if (x === null) { hoverRow(null); return; }
+    const hit = document.elementFromPoint(x, y);
+    hoverRow(hit ? hit.closest(".row, .b, .x") : null);
+  };
+  wrap.addEventListener("mouseover", (e) => hoverRow(e.target.closest(".row, .b, .x")));
+  wrap.addEventListener("keydown", (e) => {
+    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("row")) { e.preventDefault(); e.target.click(); }
+  });
+
+  post({ op: "ready" });
+</script>
+</body>
+</html>

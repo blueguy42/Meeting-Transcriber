@@ -3,6 +3,7 @@ import shutil
 from pathlib import Path
 
 from .audio import compress_meeting
+from .progress import DOCX, SUMMARIZING
 from .summarize import summarize_meeting
 from .transcribe import transcribe_meeting, transcript_file
 
@@ -16,7 +17,7 @@ def process(meeting_dir: Path, cfg: dict, prompt_name: str | None = None, progre
         progress(f"Audio compression: {note}")
     if not cfg["auto_summarize"]:
         return meeting_dir, transcript
-    progress("Summarizing with Claude…")
+    progress(SUMMARIZING)
     return finish(meeting_dir, cfg, summarize_meeting(meeting_dir, cfg, prompt_name), progress)
 
 
@@ -26,7 +27,7 @@ def summarize_existing(meeting_dir: Path, cfg: dict, prompt_name: str | None = N
         transcribe_meeting(meeting_dir, cfg, progress)
         for note in compress_meeting(meeting_dir, cfg["compress_audio"]):
             progress(f"Audio compression: {note}")
-    progress("Summarizing with Claude…")
+    progress(SUMMARIZING)
     return finish(meeting_dir, cfg, summarize_meeting(meeting_dir, cfg, prompt_name), progress)
 
 
@@ -41,7 +42,7 @@ def make_docx(meeting_dir: Path, cfg: dict, summary: Path, progress=print) -> Pa
     """A failure here never loses the Markdown summary. Applies to every summary, automatic or manual."""
     if not cfg["export_docx"]:
         return None
-    progress("Creating Word document…")
+    progress(DOCX)
     try:
         from .docx_export import export_docx
 

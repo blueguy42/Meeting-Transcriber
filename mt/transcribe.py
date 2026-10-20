@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from .audio import find_track
+from .progress import transcribing
 
 SR = 16000
 SILENT_RMS = 0.003
@@ -412,14 +413,14 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
 
     segs: dict[str, list[dict]] = {mine: [], others: []}
     for label, (audio, offset) in tracks.items():
-        progress(f"Transcribing {label} ({len(regions[label])} speech bursts)…")
+        progress(transcribing(label, bursts=len(regions[label])))
         segs[label] = transcribe_regions(
             audio,
             regions[label],
             cfg,
             offset,
             label,
-            lambda f, label=label: progress(f"Transcribing {label}… {f:.0%}"),
+            lambda f, label=label: progress(transcribing(label, f)),
             env=envs[label],
             thr=thrs[label],
         )

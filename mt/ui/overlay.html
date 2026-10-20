@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default;
+    font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+  .bar { box-sizing: border-box; width: 64px; padding: 6px 0 10px; border-radius: 20px; background: #1e1f24;
+    border: 1px solid rgba(255,255,255,.14); display: flex; flex-direction: column; align-items: center; gap: 6px; color: #ececf0; }
+  .grip { height: 10px; margin-bottom: 4px; cursor: grab; }
+  .btn { width: 44px; height: 44px; border-radius: 12px; border: 0; padding: 0; background: transparent; color: #ececf0;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .btn:hover, .btn.hov { background: rgba(255,255,255,.12); }
+  .btn:active { background: rgba(255,255,255,.2); }
+  .btn.off { color: #8d8e98; cursor: default; background: transparent; }
+  .btn.warn { color: #ffb340; background: rgba(255,179,64,.16); }
+  .btn.warn:hover, .btn.warn.hov { background: rgba(255,179,64,.28); }
+  .btn.off:hover, .btn.off.hov { background: transparent; }
+  .btn.muted { background: rgba(255,69,58,.14); }
+  .btn.muted:hover, .btn.muted.hov { background: rgba(255,69,58,.24); }
+  .btn svg { display: block; }
+  .slash { display: none; }
+  .muted .slash, .tab .slash { display: block; }
+  .rec { position: relative; width: 48px; height: 48px; border-radius: 50%; border: 0; padding: 0; background: transparent;
+    cursor: pointer; flex: none; }
+  .rec .ring { position: absolute; inset: 0; }
+  .rec .face { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .rec .dot { width: 34px; height: 34px; border-radius: 50%; background: #ff453a; transition: all .15s; }
+  .recording .rec .dot { width: 20px; height: 20px; border-radius: 5px; }
+  .rec .glyph { display: none; }
+  .badge { position: absolute; top: -6px; right: -8px; min-width: 18px; height: 18px; border-radius: 9px; background: #64a8ff; color: #0b1e33;
+    font-size: 11px; font-weight: 600; display: none; align-items: center; justify-content: center; border: 2px solid #1e1f24; box-sizing: content-box; }
+  .timer { height: 14px; line-height: 14px; font-size: 12px; font-variant-numeric: tabular-nums; color: #a9aab4; white-space: nowrap; }
+  .recording .timer { color: #ececf0; }
+  .div { width: 32px; height: 1px; background: rgba(255,255,255,.14); margin: 2px 0; }
+  button:focus-visible { outline: 2px solid #64a8ff; outline-offset: 1px; }
+  .tab { box-sizing: border-box; width: 42px; padding: 10px 0; background: #1e1f24; border: 1px solid rgba(255,255,255,.14); color: #ececf0;
+    display: none; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer; }
+  .tab.edge-right { border-radius: 14px 0 0 14px; border-right: 0; }
+  .tab.edge-left { border-radius: 0 14px 14px 0; border-left: 0; }
+  .tab:hover, .tab.hov { background: #2a2b31; }
+  .tab .tdot { width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box; }
+  .hidden-mode .bar { display: none; }
+  .hidden-mode .tab { display: flex; }
+</style>
+</head>
+<body>
+<div id="root">
+<div class="bar" id="bar">
+  <div class="grip" id="grip" aria-hidden="true">
+    <svg width="24" height="10" viewBox="0 0 24 10" fill="#6f7079"><circle cx="6" cy="2" r="1.4"/><circle cx="12" cy="2" r="1.4"/><circle cx="18" cy="2" r="1.4"/><circle cx="6" cy="8" r="1.4"/><circle cx="12" cy="8" r="1.4"/><circle cx="18" cy="8" r="1.4"/></svg>
+  </div>
+  <button class="rec" id="rec" data-tip="rec" aria-label="Start recording">
+    <svg class="ring" viewBox="0 0 48 48" aria-hidden="true">
+      <circle id="ring-track" cx="24" cy="24" r="22" fill="none" stroke="#f2f2f5" stroke-width="2"/>
+      <circle id="ring-arc" cx="24" cy="24" r="22" fill="none" stroke="#64a8ff" stroke-width="3" stroke-linecap="round" stroke-dasharray="0 138.2" transform="rotate(-90 24 24)"/>
+    </svg>
+    <span class="face">
+      <span class="dot" id="dot"></span>
+      <svg class="glyph" id="glyph" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#ececf0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"></svg>
+    </span>
+    <span class="badge" id="badge" role="button" aria-label="Show processing status"></span>
+  </button>
+  <span class="timer" id="timer">Ready</span>
+  <div class="div"></div>
+  <button class="btn off" id="shot" data-tip="shot" aria-label="Take screenshot">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+  </button>
+  <button class="btn" id="mic" data-tip="mic" aria-label="Mute microphone">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/><path class="slash" d="M3.5 3.5l17 17" stroke="#ff453a" stroke-width="2.4"/></svg>
+  </button>
+  <button class="btn" id="sys" data-tip="sys" aria-label="Mute system audio">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/><path class="slash" d="M3.5 3.5l17 17" stroke="#ff453a" stroke-width="2.4"/></svg>
+  </button>
+  <button class="btn warn" id="perm" data-tip="perm" aria-label="Permissions needed" style="display:none">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>
+  </button>
+  <div class="div"></div>
+  <button class="btn" id="more" data-tip="more" aria-label="More">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
+  </button>
+</div>
+<button class="tab" id="tab" data-tip="tab" aria-label="Show recording bar">
+  <svg id="tab-chev" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ececf0" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 6l-6 6 6 6"/></svg>
+  <span class="tdot" id="tab-dot"></span>
+  <span id="tab-text">Ready</span>
+  <svg id="tab-mic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ececf0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/><path d="M3.5 3.5l17 17" stroke="#ff453a" stroke-width="2.4"/></svg>
+  <svg id="tab-sys" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#ececf0" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/><path d="M3.5 3.5l17 17" stroke="#ff453a" stroke-width="2.4"/></svg>
+</button>
+</div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const CIRC = 2 * Math.PI * 22;
+  const GLYPHS = {
+    wave: '<path d="M4 10v4M8 6v12M12 3v18M16 8v8M20 11v2"/>',
+    doc: '<path d="M7 3h7l4 4v14H7z"/><path d="M10 12h5M10 16h5"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7.5" stroke="#30d158" stroke-width="2.6"/>',
+    bang: '<path d="M12 5v9M12 18v1" stroke="#ff453a" stroke-width="2.6"/>',
+    clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+  };
+  let state = { recording: false, elapsed: 0, micMuted: false, sysMuted: false, busy: 0, job: null, hidden: false, side: "right" };
+  let lastSize = "";
+
+  function post(msg) { window.webkit.messageHandlers.bridge.postMessage(JSON.stringify(msg)); }
+  const mmss = (s) => String(Math.floor(s / 60)).padStart(2, "0") + ":" + String(s % 60).padStart(2, "0");
+
+  function setRing(color, fraction, track) {
+    $("ring-track").setAttribute("stroke", track);
+    $("ring-arc").setAttribute("stroke", fraction > 0 ? color : "transparent");  // a round cap would draw a dot at 0
+    $("ring-arc").setAttribute("stroke-dasharray", (CIRC * fraction) + " " + CIRC);
+  }
+
+  window.render = function (s) {
+    state = s;
+    const job = s.job, rec = !!s.recording;
+    document.body.classList.toggle("hidden-mode", !!s.hidden);
+    $("bar").classList.toggle("recording", rec);
+
+    // the big ring: record button, or the progress of the meeting being processed
+    const showJob = !rec && job;
+    $("dot").style.display = showJob ? "none" : "";
+    $("glyph").style.display = showJob ? "block" : "none";
+    let label = rec ? "Stop and summarize" : "Start recording", timer = "Ready";
+    if (rec) {
+      setRing("#ff453a", 1, "#ff453a");
+      timer = mmss(s.elapsed);
+    } else if (!job) {
+      setRing("#f2f2f5", 0, "#f2f2f5");
+    } else if (job.stage === "done") {
+      setRing("#30d158", 1, "#3a3b42"); $("glyph").innerHTML = GLYPHS.check; timer = "Done"; label = "Show result";
+    } else if (job.stage === "failed") {
+      setRing("#ff453a", 1, "#3a3b42"); $("glyph").innerHTML = GLYPHS.bang; timer = "Failed"; label = "Show error";
+    } else {
+      setRing("#64a8ff", Math.max(0.03, job.progress), "#3a3b42");
+      $("glyph").innerHTML = job.stage === "transcribing" ? GLYPHS.wave : job.stage === "queued" ? GLYPHS.clock : GLYPHS.doc;
+      timer = job.stage === "transcribing" ? Math.round(job.progress * 100) + "%" : job.stage === "queued" ? "Waiting" : job.stage === "summarizing" ? "Writing" : "Saving";
+      label = "Show processing status";
+    }
+    $("rec").setAttribute("aria-label", label);
+    $("timer").textContent = timer;
+    $("timer").style.color = !rec && job && job.stage !== "done" && job.stage !== "failed" ? "#64a8ff" : "";
+    const b = $("badge");
+    b.style.display = rec && s.busy > 0 ? "flex" : "none";
+    b.textContent = s.busy;
+
+    $("perm").style.display = s.perm ? "flex" : "none";
+    $("shot").classList.toggle("off", !rec);
+    $("shot").setAttribute("aria-disabled", rec ? "false" : "true");
+    for (const [id, muted, what] of [["mic", s.micMuted, "microphone"], ["sys", s.sysMuted, "system audio"]]) {
+      $(id).classList.toggle("muted", !!muted);
+      $(id).setAttribute("aria-label", (muted ? "Unmute " : "Mute ") + what);
+    }
+
+    // the slim edge tab shown while the bar is hidden
+    const tab = $("tab");
+    tab.className = "tab " + (s.side === "left" ? "edge-left" : "edge-right");
+    $("tab-chev").innerHTML = s.side === "left" ? '<path d="M9 6l6 6-6 6"/>' : '<path d="M15 6l-6 6 6 6"/>';
+    const dot = $("tab-dot");
+    if (rec) { dot.style.cssText = "background:#ff453a"; }
+    else if (job && job.stage === "done") { dot.style.cssText = "background:#30d158"; }
+    else if (job && job.stage === "failed") { dot.style.cssText = "background:#ff453a"; }
+    else if (job) { dot.style.cssText = "background:#64a8ff"; }
+    else { dot.style.cssText = "border:2px solid #8d8e98"; }
+    $("tab-text").textContent = rec ? mmss(s.elapsed) : timer;
+    $("tab-text").style.color = !rec && !job ? "#a9aab4" : "";
+    $("tab-mic").style.display = s.micMuted ? "block" : "none";
+    $("tab-sys").style.display = s.sysMuted ? "block" : "none";
+
+    const el = s.hidden ? tab : $("bar");
+    const r = el.getBoundingClientRect();
+    const size = Math.ceil(r.width) + "x" + Math.ceil(r.height) + (s.hidden ? "h" : "");
+    if (size !== lastSize) { lastSize = size; post({ op: "size", w: Math.ceil(r.width), h: Math.ceil(r.height) }); }
+  };
+
+  $("rec").onclick = (e) => {
+    hideTip();
+    if (e.target.closest("#badge")) { post({ op: "status" }); return; }
+    if (!state.recording && state.job) post({ op: "status" });
+    else post({ op: "toggle" });
+  };
+  $("shot").onclick = () => { hideTip(); if (state.recording) post({ op: "shot" }); };
+  $("mic").onclick = () => { hideTip(); post({ op: "mute_mic" }); };
+  $("sys").onclick = () => { hideTip(); post({ op: "mute_system" }); };
+  $("perm").onclick = () => { hideTip(); post({ op: "perm" }); };
+  $("more").onclick = () => { hideTip(); const r = $("more").getBoundingClientRect(); post({ op: "more", top: r.top, bottom: r.bottom }); };
+  $("tab").onclick = () => { if (suppressClick) return; hideTip(); post({ op: "unhide" }); };
+
+  // tooltips are drawn by Python in their own small panel; here we only say which button is hovered.
+  // Python reports the mouse position (window.__hover) because WebKit does not track it while the panel is not key.
+  let tipTimer = null, hovered = null;  // (tipTimer: only used to cancel)
+  function hideTip() { clearTimeout(tipTimer); post({ op: "tip_hide" }); }
+  function setHover(el) {
+    if (el === hovered) return;
+    if (hovered) hovered.classList.remove("hov");
+    hovered = el;
+    clearTimeout(tipTimer);
+    if (!el) { post({ op: "tip_hide" }); return; }
+    el.classList.add("hov");
+    const r = el.getBoundingClientRect();
+    post({ op: "tip", id: el.dataset.tip, top: r.top, bottom: r.bottom });  // straight away; it just moves when you go to the next button
+  }
+  window.__hover = function (x, y) {
+    if (x === null || drag) { setHover(null); return; }
+    const hit = document.elementFromPoint(x, y);
+    setHover(hit ? hit.closest("[data-tip]") : null);
+  };
+
+  // Drag the bar by anything that is not a button, or the hidden tab (the page cannot move the window itself).
+  // The tab is a button, so it only counts as a drag after a few pixels; a plain click shows the bar again.
+  let drag = null, dragStarted = false, suppressClick = false;
+  function startDrag(el, e, threshold) {
+    drag = { x: e.screenX, y: e.screenY, threshold };
+    dragStarted = false;
+    el.setPointerCapture(e.pointerId);
+  }
+  function moveDrag(e) {
+    if (!drag) return;
+    const dx = e.screenX - drag.x, dy = e.screenY - drag.y;
+    if (!dragStarted) {
+      if (Math.hypot(dx, dy) < drag.threshold) return;
+      dragStarted = true;
+      hideTip();
+      post({ op: "drag", phase: "start" });
+    }
+    post({ op: "drag", phase: "move", dx, dy });
+  }
+  function endDrag() {
+    if (!drag) return;
+    const was = dragStarted;
+    drag = null; dragStarted = false;
+    if (was) { post({ op: "drag", phase: "end" }); suppressClick = true; setTimeout(() => { suppressClick = false; }, 0); }
+  }
+  for (const [el, threshold, ignoreButtons] of [[$("bar"), 0, true], [$("tab"), 4, false]]) {
+    el.addEventListener("pointerdown", (e) => { if (!(ignoreButtons && e.target.closest("button"))) startDrag(el, e, threshold); });
+    el.addEventListener("pointermove", moveDrag);
+    el.addEventListener("pointerup", endDrag);
+    el.addEventListener("pointercancel", endDrag);
+  }
+
+  post({ op: "ready" });
+</script>
+</body>
+</html>

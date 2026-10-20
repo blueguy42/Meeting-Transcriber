@@ -98,6 +98,20 @@ The first time you open the app it explains what it needs, then macOS asks for p
 | Change settings or edit the summary styles | Menu → **Settings…** (⌘ ,) |
 | Open the folder with all meetings | Menu → **Open meetings folder** |
 
+**Floating bar.** A small bar sits on the right edge of your screen with the same controls: record / stop
+(with the elapsed time), screenshot, mute microphone, mute system audio, and **⋮** for the rest of the menu
+(summary style, summarize a meeting, settings, meetings folder, hide bar, quit). Hover a button for its name
+and shortcut. A red line across an icon means it is muted.
+- **Move it:** drag it by its grip or any empty part. It snaps to the nearest screen edge and remembers where you left it.
+  Menus and tooltips open on the side facing the screen centre.
+- **Hide it:** **⋮ → Hide bar** collapses it to a slim tab on the edge (still showing the timer, progress and mutes). Click the tab to bring the bar back.
+- **After you stop:** the record button turns into a progress ring and a panel lists the steps (transcribing your mic and the
+  system audio, summarizing, saving). When it is done you get **Summary** and **Folder** buttons. You can start a new
+  recording meanwhile; a blue badge counts the meetings still being processed.
+- **Permissions:** if Microphone or Screen & System Audio Recording is missing, an amber warning button appears on the bar (and at the top of **⋮**). Click it to be asked, or taken to the right System Settings pane, the same as the menu bar's "Permissions needed…".
+- **Private:** it never takes focus from the app you are in, and it is kept out of screen shares and out of your screenshots.
+- Turn it off with `overlay = false` in `config.toml`, or from the menu bar item **Show floating bar**.
+
 The menu shows each shortcut next to its item. Shortcuts work in any app and need no extra
 permission. If another app already uses the same combination, you get a notification.
 
@@ -287,6 +301,7 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 | `screenshot_scale` | `50` | percent (10–100) of the screen's real pixel size |
 | `claude_path`, `claude_model` | auto, Claude Code's default | |
 | `start_muted_mic`, `start_muted_system` | `false` | start the app with that side muted |
+| `overlay` | `true` | show the floating control bar |
 | `hotkey_record`, `hotkey_screenshot`, `hotkey_mute_mic`, `hotkey_mute_system` | `<ctrl>+<alt>+r` / `s` / `m` / `n` | modifiers `<ctrl> <alt> <shift> <cmd>` plus a letter, digit or `<f1>`…`<f20>`; must differ |
 
 Prompts live in `~/Library/Application Support/MeetingTranscriber/prompts/` (copied from `prompts/` on first run).
