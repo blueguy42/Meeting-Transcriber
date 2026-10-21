@@ -1,4 +1,4 @@
-"""CLI for testing / re-running without the menu bar app.
+"""CLI for testing / re-running without the app.
 
 python -m mt.cli record            # Enter to stop, 's'+Enter for a screenshot
 python -m mt.cli process <dir>     # transcribe + summarize an existing meeting folder

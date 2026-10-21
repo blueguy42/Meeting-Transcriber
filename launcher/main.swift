@@ -1,4 +1,4 @@
-// Native stub for MeetingTranscriber.app. It starts the Python menu bar app as a child process,
+// Native stub for MeetingTranscriber.app. It starts the Python app as a child process,
 // so macOS attributes Microphone / Screen Recording permissions to this app
 // (a stable identity) instead of to Terminal or a bare Python binary.
 
@@ -11,14 +11,14 @@ let project = try! String(contentsOf: res.appendingPathComponent("project_path.t
 
 let p = Process()
 p.executableURL = URL(fileURLWithPath: project + "/.venv/bin/python")
-p.arguments = ["-m", "mt.menubar"]
+p.arguments = ["-m", "mt.app"]
 p.currentDirectoryURL = URL(fileURLWithPath: project)
 var env = ProcessInfo.processInfo.environment
 env["MT_HELPER"] = res.appendingPathComponent("sck-audio").path
 env["PATH"] = (env["PATH"] ?? "") + ":/opt/homebrew/bin:/usr/local/bin"
 p.environment = env
 
-// Keep a log: a crash at startup otherwise just makes the menu bar icon vanish.
+// Keep a log: a crash at startup otherwise just makes the floating bar vanish.
 let logDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
 let logURL = logDir.appendingPathComponent("MeetingTranscriber.log")
 if !FileManager.default.fileExists(atPath: logURL.path) {

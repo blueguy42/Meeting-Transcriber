@@ -1,5 +1,5 @@
 #!/bin/bash
-# Builds MeetingTranscriber.app (double-clickable menu bar app) next to this script.
+# Builds MeetingTranscriber.app (double-clickable app) next to this script.
 set -euo pipefail
 cd "$(dirname "$0")"
 ROOT="$PWD"

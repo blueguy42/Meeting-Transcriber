@@ -46,7 +46,7 @@ def _js(value) -> str:
 
 
 def install_edit_menu() -> None:
-    """Menu bar apps have no main menu, so Cmd+C / Cmd+V / Cmd+A would not work in text fields."""
+    """An app with no menu bar has no main menu, so Cmd+C / Cmd+V / Cmd+A would not work in text fields."""
     main = NSMenu.alloc().init()
     app_item = NSMenuItem.alloc().init()
     main.addItem_(app_item)

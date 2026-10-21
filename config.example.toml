@@ -37,9 +37,6 @@
 # start_muted_mic = false
 # start_muted_system = false
 
-# Floating control bar over your screen (false = menu bar only):
-# overlay = true
-
 # Global hotkeys (modifiers: ctrl, alt, shift, cmd):
 # hotkey_record = "<ctrl>+<alt>+r"
 # hotkey_screenshot = "<ctrl>+<alt>+s"

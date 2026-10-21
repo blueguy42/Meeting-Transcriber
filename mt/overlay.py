@@ -7,8 +7,8 @@ requests; the app pushes its state to the page as JSON. The panels never take fo
 Three small extra panels (all hosting mt/ui/popup.html) sit beside the bar, on the side facing the screen
 centre: a tooltip, the More menu (with the Summary style submenu) and the processing status.
 
-The `host` (the menu bar App) supplies the content and does the work:
-    host.overlay_action(op)            "toggle" | "shot" | "mute_mic" | "mute_system" | "perm"
+The `host` (the App in app.py) supplies the content and does the work:
+    host.overlay_action(op)            "toggle" | "shot" | "mute_mic" | "mute_system" | "perm" | "quit"
     host.overlay_tip(id) -> {"text", "hotkey"} | None
     host.overlay_menu() -> [{"id", "label", "hint"?, "sub"?: [{"id", "label", "checked"}]} | {"divider": True}]
     host.overlay_menu_click(id)
@@ -23,29 +23,33 @@ from pathlib import Path
 
 import objc
 from AppKit import (
+    NSBezierPath,
     NSColor,
     NSEvent,
     NSPanel,
     NSScreen,
     NSTrackingArea,
+    NSView,
     NSWindowCollectionBehaviorCanJoinAllSpaces,
     NSWindowCollectionBehaviorFullScreenAuxiliary,
     NSWindowCollectionBehaviorStationary,
 )
-from Foundation import NSMakePoint, NSMakeRect, NSObject
+from Foundation import NSMakePoint, NSMakeRect, NSObject, NSRunLoop, NSRunLoopCommonModes, NSTimer
 from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
 
 from . import config
 
 UI = Path(__file__).parent / "ui"
 NONACTIVATING_PANEL = 1 << 7
-STATUS_LEVEL = 25  # NSStatusWindowLevel: above normal windows and the Dock, like the menu bar
+STATUS_LEVEL = 25  # NSStatusWindowLevel: above normal windows and the Dock
 MARGIN = 24  # gap between the bar and the screen edge
 GAP = 8  # gap between the bar and a popup
+POPUP_PAD = 14.0  # transparent border around a popup's cards (room for their CSS shadow), see popup.html
 CLICK_MASK = (1 << 1) | (1 << 3) | (1 << 25)  # left, right, other mouse down
+MOVE_MASK = 1 << 5  # mouse moved
 # NSTrackingMouseEnteredAndExited | MouseMoved | ActiveAlways | InVisibleRect
 TRACK_ALWAYS = 0x01 | 0x02 | 0x80 | 0x200
-OPS = {"toggle", "shot", "mute_mic", "mute_system", "perm"}
+OPS = {"toggle", "shot", "mute_mic", "mute_system", "perm", "quit"}
 
 
 class _OverlayPanel(NSPanel):
@@ -57,12 +61,14 @@ class _OverlayPanel(NSPanel):
 
 
 class _OverlayWeb(WKWebView):
+    pointer_cb = None  # called whenever the mouse moves over, enters or leaves this panel
+
     def acceptsFirstMouse_(self, event):
         return True  # the first click acts; it must not be spent on "activating" the panel
 
-    # The panels are never the key window and the app is never "active", and WebKit does not track the mouse
-    # (no :hover, no pointerenter) in that state. So an "always active" tracking area reports the mouse to us
-    # and we pass its position to the page, which works out what is under it (window.__hover in the pages).
+    # The pages cannot be trusted to hear about the mouse (their panels are never the key window), so the panel
+    # itself listens: an "always active" tracking area reports the mouse to us, and the app works out what is under
+    # it (see Overlay._pointer_moved). This only fires while the pointer is over one of our panels.
     def updateTrackingAreas(self):
         objc.super(_OverlayWeb, self).updateTrackingAreas()
         old = getattr(self, "_always_area", None)
@@ -72,20 +78,17 @@ class _OverlayWeb(WKWebView):
         self.addTrackingArea_(area)
         self._always_area = area
 
-    @objc.python_method
-    def _report_hover(self, event):
-        p = self.convertPoint_fromView_(event.locationInWindow(), None)
-        y = p.y if self.isFlipped() else self.bounds().size.height - p.y
-        self.evaluateJavaScript_completionHandler_(f"window.__hover && window.__hover({p.x}, {y})", None)
-
     def mouseMoved_(self, event):
-        self._report_hover(event)
+        if self.pointer_cb:
+            self.pointer_cb()
 
     def mouseEntered_(self, event):
-        self._report_hover(event)
+        if self.pointer_cb:
+            self.pointer_cb()
 
     def mouseExited_(self, event):
-        self.evaluateJavaScript_completionHandler_("window.__hover && window.__hover(null)", None)
+        if self.pointer_cb:
+            self.pointer_cb()
 
 
 class _OverlayBridge(NSObject, protocols=[objc.protocolNamed("WKScriptMessageHandler")]):
@@ -104,10 +107,63 @@ def _js(value) -> str:
     return json.dumps(value, ensure_ascii=False).replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
 
+class _OverlayGhostView(NSView):
+    """The dashed "preview" of where a dragged bar (or tab) will land."""
+
+    def drawRect_(self, rect):
+        b = self.bounds()
+        r = float(getattr(self, "radius", 20.0))
+        ext = getattr(self, "ext", None)  # a tab runs past the screen edge it is flush with, so that side stays open
+        x, w = b.origin.x + 0.75, b.size.width - 1.5
+        if ext == "right":
+            w += r + 2
+        elif ext == "left":
+            x -= r + 2
+            w += r + 2
+        path = NSBezierPath.bezierPathWithRoundedRect_xRadius_yRadius_(NSMakeRect(x, b.origin.y + 0.75, w, b.size.height - 1.5), r, r)
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.39, 0.66, 0.91, 0.14).setFill()
+        path.fill()
+        path.setLineWidth_(1.5)
+        path.setLineDash_count_phase_([5.0, 4.0], 2, 0.0)
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.39, 0.66, 0.91, 1.0).setStroke()
+        path.stroke()
+
+
+class _Ghost:
+    def __init__(self):
+        rect = NSMakeRect(0, 0, 64, 64)
+        p = self.panel = _OverlayPanel.alloc().initWithContentRect_styleMask_backing_defer_(rect, NONACTIVATING_PANEL, 2, False)
+        p.setReleasedWhenClosed_(False)
+        p.setFloatingPanel_(True)
+        p.setHidesOnDeactivate_(False)
+        p.setLevel_(STATUS_LEVEL - 1)  # under the bar
+        p.setCollectionBehavior_(
+            NSWindowCollectionBehaviorCanJoinAllSpaces
+            | NSWindowCollectionBehaviorFullScreenAuxiliary
+            | NSWindowCollectionBehaviorStationary
+        )
+        p.setOpaque_(False)
+        p.setBackgroundColor_(NSColor.clearColor())
+        p.setHasShadow_(False)
+        p.setIgnoresMouseEvents_(True)
+        p.setSharingType_(1 if os.environ.get("MT_OVERLAY_CAPTURABLE") else 0)
+        self.view = _OverlayGhostView.alloc().initWithFrame_(rect)
+        p.setContentView_(self.view)
+
+    def show(self, frame, radius: float, ext) -> None:
+        self.view.radius, self.view.ext = radius, ext
+        self.panel.setFrame_display_(frame, True)
+        self.view.setNeedsDisplay_(True)
+        self.panel.orderFrontRegardless()
+
+    def hide(self) -> None:
+        self.panel.orderOut_(None)
+
+
 class _Surface:
     """One transparent panel with a web page in it."""
 
-    def __init__(self, page: str, on_message, level: int = STATUS_LEVEL, ignore_mouse: bool = False):
+    def __init__(self, page: str, on_message, level: int = STATUS_LEVEL, ignore_mouse: bool = False, shadow: bool = True, on_pointer=None):
         self.on_message = on_message
         rect = NSMakeRect(0, 0, 64, 64)
         self.panel = _OverlayPanel.alloc().initWithContentRect_styleMask_backing_defer_(rect, NONACTIVATING_PANEL, 2, False)
@@ -124,7 +180,7 @@ class _Surface:
         )
         p.setOpaque_(False)
         p.setBackgroundColor_(NSColor.clearColor())
-        p.setHasShadow_(True)
+        p.setHasShadow_(shadow)
         p.setIgnoresMouseEvents_(ignore_mouse)
         p.setAcceptsMouseMovedEvents_(True)
         # NSWindowSharingNone keeps the panels out of screen shares and captures (MT_OVERLAY_CAPTURABLE=1: for testing only)
@@ -136,10 +192,12 @@ class _Surface:
         controller.addScriptMessageHandler_name_(self._bridge, "bridge")
         cfg.setUserContentController_(controller)
         self.web = _OverlayWeb.alloc().initWithFrame_configuration_(rect, cfg)
+        self.web.pointer_cb = on_pointer
         self.web.setValue_forKey_(False, "drawsBackground")  # transparent corners around the rounded content
         self.web.setAutoresizingMask_(2 | 16)
         self.web.loadHTMLString_baseURL_((UI / page).read_text(), None)
         p.setContentView_(self.web)
+        self.web.updateTrackingAreas()
         self.web.updateTrackingAreas()
 
     def _receive(self, raw: str) -> None:
@@ -159,6 +217,9 @@ class _Surface:
     @property
     def visible(self) -> bool:
         return bool(self.panel.isVisible())
+
+    def eval(self, js: str) -> None:
+        self.web.evaluateJavaScript_completionHandler_(js, None)
 
     def show(self) -> None:
         self.panel.orderFrontRegardless()
@@ -200,11 +261,28 @@ class Overlay:
         self._monitor = None
         self._anchor = {}
         self._load()
-        self.bar = _Surface("overlay.html", self._on_bar)
-        self.tip = _Surface("popup.html", lambda m: self._on_popup("tip", m), level=STATUS_LEVEL + 1, ignore_mouse=True)
-        self.menu = _Surface("popup.html", lambda m: self._on_popup("menu", m), level=STATUS_LEVEL + 1)
-        self.status = _Surface("popup.html", lambda m: self._on_popup("status", m), level=STATUS_LEVEL + 1)
+        self.ghost = _Ghost()  # the dashed preview shown while dragging
+        self.bar = _Surface("overlay.html", self._on_bar, on_pointer=lambda: self._pointer_moved())
+        self.tip = _Surface("popup.html", lambda m: self._on_popup("tip", m), level=STATUS_LEVEL + 1, ignore_mouse=True, shadow=False)
+        self.menu = _Surface("popup.html", lambda m: self._on_popup("menu", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved())
+        self.status = _Surface("popup.html", lambda m: self._on_popup("status", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved())
         self._popups = {"tip": self.tip, "menu": self.menu, "status": self.status}
+        self._menu_rects = []  # the visible parts of the menu panel, in its own page coordinates
+        self._menu_rows = []  # its rows (x, y, w, h, index), same coordinates
+        self._bar_items = []  # the toolbar buttons (id, x, y, w, h) in the bar page's coordinates
+        self._bar_hover = None
+        self._tip_timer = None  # the tooltip waits a beat after the pointer settles, see _pointer_moved
+        self._poll = None  # a 60 Hz look at the pointer while it is over one of our panels
+        self._status_rows = []
+        self._status_hover = -2
+        self._menu_hover = -2  # the row the pointer is over (-1: none)
+        # Mouse-moved events reach a tooltip-style panel late or in clumps, but the app-wide monitors get them
+        # promptly (hover had no lag while these were running for the open More menu), so they run all the time;
+        # _pointer_moved leaves at once when the pointer is nowhere near us.
+        self._move_monitors = [
+            NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(MOVE_MASK, lambda e: self._pointer_moved()),
+            NSEvent.addLocalMonitorForEventsMatchingMask_handler_(MOVE_MASK, lambda e: (self._pointer_moved(), e)[1]),
+        ]
         self._want = {"tip": False, "menu": False, "status": False}  # shown once the page has measured itself
 
     # ---- visibility
@@ -218,6 +296,7 @@ class Overlay:
 
     def hide(self) -> None:
         self.close_popups()
+        self.ghost.hide()
         self.bar.hide()
 
     def set_hidden(self, hidden: bool) -> None:
@@ -230,7 +309,7 @@ class Overlay:
     def update(self, state: dict) -> None:
         """Push the app's state to the bar (cheap; called every second and after every action)."""
         self._state = state
-        self.bar.render({**state, "side": self.side, "hidden": self.hidden})
+        self.bar.render({**state, "side": self.side, "hidden": self.hidden, "menuOpen": self._want["menu"]})
         if self._want["status"]:
             self._render_status()
 
@@ -286,8 +365,10 @@ class Overlay:
         elif phase == "move" and self._origin0:
             x0, y0 = self._origin0
             self.bar.panel.setFrameOrigin_(NSMakePoint(x0 + float(msg["dx"]), y0 - float(msg["dy"])))  # screen y grows downward
+            self._show_ghost()
         elif phase == "end" and self._origin0:
             self._origin0 = None
+            self.ghost.hide()
             f = self.bar.panel.frame()
             screen = _screen_of(NSMakePoint(f.origin.x + f.size.width / 2, f.origin.y + f.size.height / 2))
             v = screen.visibleFrame()
@@ -300,6 +381,18 @@ class Overlay:
             self._save()
             self.update(self._state)  # the side may have changed
 
+    def _show_ghost(self) -> None:
+        """Preview where the bar (or tab) will land if you let go now: the nearer edge, at the height being dragged to."""
+        f = self.bar.panel.frame()
+        mid = NSMakePoint(f.origin.x + f.size.width / 2, f.origin.y + f.size.height / 2)
+        v = _screen_of(mid).visibleFrame()
+        side = "left" if mid.x < v.origin.x + v.size.width / 2 else "right"
+        w, h = f.size.width, f.size.height
+        inset = 0 if self.hidden else MARGIN
+        x = v.origin.x + inset if side == "left" else v.origin.x + v.size.width - w - inset
+        y = min(max(f.origin.y, v.origin.y), v.origin.y + v.size.height - h)
+        self.ghost.show(NSMakeRect(x, y, w, h), 14.0 if self.hidden else 20.0, side if self.hidden else None)
+
     # ---- popups (tooltip, menu, status)
     def _bar_frame(self):
         return self.bar.panel.frame()
@@ -308,16 +401,17 @@ class Overlay:
         f = self._bar_frame()
         v = _screen_of(NSMakePoint(f.origin.x + f.size.width / 2, f.origin.y + f.size.height / 2)).visibleFrame()
         a = self._anchor.get(kind, {})
-        x = f.origin.x - w - GAP if self.side == "right" else f.origin.x + f.size.width + GAP
+        pad = POPUP_PAD  # the panel is the cards plus this border all round
+        x = f.origin.x - w - GAP + pad if self.side == "right" else f.origin.x + f.size.width + GAP - pad
         top, bottom = f.origin.y + f.size.height - a.get("top", 0), f.origin.y + f.size.height - a.get("bottom", 0)
         if kind == "tip":
             y = (top + bottom) / 2 - h / 2
         elif kind == "menu":
-            y = bottom  # the menu's bottom edge lines up with the More button's
+            y = bottom - pad  # the menu's bottom edge lines up with the More button's
         else:
-            y = f.origin.y + f.size.height - h  # the status panel's top edge lines up with the bar's
-        x = min(max(x, v.origin.x), v.origin.x + v.size.width - w)
-        y = min(max(y, v.origin.y), v.origin.y + v.size.height - h)
+            y = f.origin.y + f.size.height - h + pad  # the status panel's top edge lines up with the bar's
+        x = min(max(x, v.origin.x - pad), v.origin.x + v.size.width - w + pad)
+        y = min(max(y, v.origin.y - pad), v.origin.y + v.size.height - h + pad)
         self._popups[kind].panel.setFrame_display_(NSMakeRect(x, y, w, h), True)
         self._popups[kind].panel.invalidateShadow()
         if self._want[kind]:
@@ -327,6 +421,15 @@ class Overlay:
         op = msg["op"]
         if op == "size":
             self._place_popup(kind, float(msg["w"]), float(msg["h"]))
+        elif op == "rects" and kind in ("menu", "status"):
+            rows = [(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"]), int(r["i"])) for r in msg.get("rows", [])]
+            if kind == "menu":
+                self._menu_rects = [(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"])) for r in msg.get("rects", [])]
+                self._menu_rows = rows
+                self._menu_passthrough()
+            else:
+                self._status_rows = rows
+                self._status_pointer()
         elif op == "menu_click":
             self.close_menu()
             self.host.overlay_menu_click(str(msg["id"]))
@@ -358,20 +461,113 @@ class Overlay:
         self._anchor["menu"] = anchor
         self._want["menu"] = True
         self.menu.render({"kind": "menu", "side": self.side, "items": self.host.overlay_menu(), "fresh": True})
+        self.update(self._state)  # the More button stays lit while its menu is open
         # a click anywhere outside our own windows closes the menu
         self._monitor = NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(CLICK_MASK, lambda e: self.close_menu())
+        # The panel is bigger than the menu (room for the submenu), so the empty part must not swallow clicks:
+        # it ignores the mouse except while the pointer is over the menu itself.
+        self.menu.panel.setIgnoresMouseEvents_(True)
+        self._menu_hover = -2
+        self._pointer_moved()
 
     def close_menu(self) -> None:
+        was_open = self._want["menu"]
         self._want["menu"] = False
         self.menu.hide()
+        if was_open:
+            self.update(self._state)
         if self._monitor is not None:
             NSEvent.removeMonitor_(self._monitor)
             self._monitor = None
+
+    def _pointer_moved(self) -> None:
+        """Called on every mouse move anywhere: light up what the pointer is over, and show its tooltip."""
+        if self._origin0 is not None or getattr(self, "bar", None) is None:  # dragging
+            return
+        p = NSEvent.mouseLocation()
+        f = self.bar.panel.frame()
+        if (self._bar_hover is None and not self._want["menu"] and not self._want["status"] and self._poll is None
+                and not (f.origin.x - 1 <= p.x <= f.origin.x + f.size.width + 1 and f.origin.y - 1 <= p.y <= f.origin.y + f.size.height + 1)):
+            return  # nowhere near us, nothing lit: nothing to do (this runs on every mouse move on the Mac)
+        hit = None
+        if self.bar.visible and f.origin.x <= p.x <= f.origin.x + f.size.width and f.origin.y <= p.y <= f.origin.y + f.size.height:
+            for it_id, x, y, w, h in self._bar_items:
+                if f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y:
+                    hit = (it_id, y, y + h)
+                    break
+        if (hit[0] if hit else None) != self._bar_hover:
+            self._bar_hover = hit[0] if hit else None
+            self.bar.eval(f"window.__setHover && window.__setHover({_js(self._bar_hover)})")  # the highlight: straight away
+            if self._tip_timer is not None:
+                self._tip_timer.invalidate()
+                self._tip_timer = None
+            if hit:
+                # The tooltip is heavier (a panel is re-rendered, resized and moved). Sweeping across the toolbar would
+                # queue up one of those per button and hold back the highlight, so it waits until the pointer settles.
+                self._tip_timer = NSTimer.timerWithTimeInterval_repeats_block_(0.05, False, lambda t, h=hit: self._tip_due(h))
+                NSRunLoop.mainRunLoop().addTimer_forMode_(self._tip_timer, NSRunLoopCommonModes)
+            else:
+                self.hide_tip()
+        if self._want["menu"]:
+            self._menu_passthrough()
+        if self._want["status"]:
+            self._status_pointer()
+        # Mouse-moved events can be coalesced or delayed when the mouse moves fast, so while the pointer is over one of
+        # our panels its position is also read 60 times a second: the highlight then always catches up.
+        over = hit is not None or (self._want["menu"] and self._over(self.menu)) or (self._want["status"] and self._over(self.status))
+        if over and self._poll is None:
+            self._poll = NSTimer.timerWithTimeInterval_repeats_block_(1 / 60, True, lambda t: self._pointer_moved())
+            NSRunLoop.mainRunLoop().addTimer_forMode_(self._poll, NSRunLoopCommonModes)
+        elif not over and self._poll is not None:
+            self._poll.invalidate()
+            self._poll = None
+
+    def _over(self, surface) -> bool:
+        p = NSEvent.mouseLocation()
+        f = surface.panel.frame()
+        return f.origin.x <= p.x <= f.origin.x + f.size.width and f.origin.y <= p.y <= f.origin.y + f.size.height
+
+    def _tip_due(self, hit) -> None:
+        self._tip_timer = None
+        if self._bar_hover == hit[0]:
+            self.show_tip(hit[0], hit[1], hit[2])
+
+    def _status_pointer(self) -> None:
+        if not self._want["status"]:
+            return
+        p = NSEvent.mouseLocation()
+        f = self.status.panel.frame()
+        row = next((i for x, y, w, h, i in self._status_rows
+                    if f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y), -1)
+        if row != self._status_hover:
+            self._status_hover = row
+            self.status.eval(f"window.__setHoverRow && window.__setHoverRow({row})")
+
+    def _menu_passthrough(self) -> None:
+        """Let clicks through the menu panel everywhere except over the menu (and its submenu)."""
+        if not self._want["menu"]:
+            return
+        p = NSEvent.mouseLocation()
+        f = self.menu.panel.frame()
+        inside = any(
+            f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y
+            for x, y, w, h in self._menu_rects
+        )
+        if bool(self.menu.panel.ignoresMouseEvents()) == inside:  # only touch the window when it actually changes
+            self.menu.panel.setIgnoresMouseEvents_(not inside)
+        # Which row is the pointer over? Worked out here from the mouse position, because the page does not
+        # reliably hear about the mouse in a panel that is not the key window. The page is told only when it changes.
+        row = next((i for x, y, w, h, i in self._menu_rows
+                    if f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y), -1)
+        if row != self._menu_hover:
+            self._menu_hover = row
+            self.menu.eval(f"window.__setHoverRow && window.__setHoverRow({row})")
 
     def open_status(self) -> None:
         self.hide_tip()
         self._anchor["status"] = {}
         self._want["status"] = True
+        self._status_hover = -2
         self._render_status()
 
     def toggle_status(self) -> None:
@@ -396,7 +592,7 @@ class Overlay:
     # ---- requests from the bar page
     def _on_bar(self, msg) -> None:
         op = msg["op"]
-        if op != "more" and op != "tip" and op != "tip_hide" and op != "size" and op != "ready":
+        if op not in ("more", "tip_hide", "size", "ready", "hit"):  # anything you do on the bar closes the menu
             self.close_menu()
         if op in OPS:
             self.host.overlay_action(op)
@@ -406,13 +602,16 @@ class Overlay:
             self._resize(float(msg["w"]), float(msg["h"]))
         elif op == "drag":
             self._drag(msg)
-        elif op == "tip":
-            self.show_tip(str(msg["id"]), float(msg["top"]), float(msg["bottom"]))
+        elif op == "hit":
+            self._bar_items = [(str(i["id"]), float(i["x"]), float(i["y"]), float(i["w"]), float(i["h"])) for i in msg.get("items", [])]
+            self._pointer_moved()
         elif op == "tip_hide":
             self.hide_tip()
         elif op == "more":
             self.toggle_menu({"top": float(msg.get("top", 0)), "bottom": float(msg.get("bottom", 0))})
         elif op == "status":
             self.toggle_status()
+        elif op == "hide":
+            self.set_hidden(True)
         elif op == "unhide":
             self.set_hidden(False)

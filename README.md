@@ -1,6 +1,6 @@
 # Meeting Transcriber
 
-A menu bar app that listens to your meetings and writes the notes for you.
+An app with a small floating control bar that listens to your meetings and writes the notes for you.
 
 You press a key to start recording. During the meeting you can press another key to grab
 screenshots. When you stop, the app turns the audio into a written transcript on your own computer
@@ -62,8 +62,8 @@ Open Terminal in this folder and run:
 ```
 
 This takes a few minutes the first time. It creates **MeetingTranscriber.app** in this folder.
-Drag it to Applications or the Dock and double-click it. Its icon appears in the menu bar (a 🎙 if the
-image is missing).
+Drag it to Applications or the Dock and double-click it. A small control bar appears on the edge of your screen.
+The power button at the bottom of the bar closes the app (it asks first if a recording or processing is running).
 
 - The first transcription downloads the speech model (about 3 GB, one time only).
 - The app runs its code from **this project folder**. Keep the folder where it is. If you move it,
@@ -90,32 +90,31 @@ The first time you open the app it explains what it needs, then macOS asks for p
 
 | I want to… | Do this |
 |---|---|
-| Start or stop a recording | Click the menu bar icon, or press **Ctrl + Option + R**. Stopping also processes the meeting. |
-| Take a screenshot while recording | Menu bar, or **Ctrl + Option + S**. The screen under your mouse flashes white to confirm. |
-| Mute your microphone / the system audio | Menu bar, or **Ctrl + Option + M** (microphone) and **Ctrl + Option + N** (system audio). Press again to unmute. This works any time, also before you start recording, and the state carries over to the next recording. While anything is muted the menu bar shows 🔇 with `mic`, `sys` or `mic+sys`, and the recording dot turns orange. Muted audio is replaced with silence before it is saved, so it cannot be recovered. The transcript marks the stretch as `(Me muted)` / `(Me unmuted)`. |
-| Choose how the summary is written | Menu → **Summary style** (remembered next time) |
-| Summarize or re-summarize any meeting | Menu → **Summarize a meeting…**, then pick the meeting's folder |
-| Change settings or edit the summary styles | Menu → **Settings…** (⌘ ,) |
-| Open the folder with all meetings | Menu → **Open meetings folder** |
+| Start or stop a recording | Click the record button on the bar, or press **Ctrl + Option + R**. Stopping also processes the meeting. |
+| Take a screenshot while recording | The camera button on the bar, or **Ctrl + Option + S**. The screen under your mouse flashes white to confirm. |
+| Mute your microphone / the system audio | The mic and speaker buttons on the bar, or **Ctrl + Option + M** (microphone) and **Ctrl + Option + N** (system audio). Press again to unmute. This works any time, also before you start recording, and the state carries over to the next recording. A muted button gets a red line across it (also on the hidden tab). Muted audio is replaced with silence before it is saved, so it cannot be recovered. The transcript marks the stretch as `(Me muted)` / `(Me unmuted)`. |
+| Choose how the summary is written | **⋮ → Summary style** (remembered next time) |
+| Summarize or re-summarize any meeting | **⋮ → Summarize a meeting…**, then pick the meeting's folder |
+| Change settings or edit the summary styles | **⋮ → Settings…** (⌘ ,) |
+| Open the folder with all meetings | **⋮ → Open meetings folder** |
 
 **Floating bar.** A small bar sits on the right edge of your screen with the same controls: record / stop
 (with the elapsed time), screenshot, mute microphone, mute system audio, and **⋮** for the rest of the menu
-(summary style, summarize a meeting, settings, meetings folder, hide bar, quit). Hover a button for its name
+(summary style, summarize a meeting, settings, meetings folder). Hover a button for its name
 and shortcut. A red line across an icon means it is muted.
-- **Move it:** drag it by its grip or any empty part. It snaps to the nearest screen edge and remembers where you left it.
+- **Move it:** drag it by its grip or any empty part, up, down or across. A dashed preview shows the screen edge it will snap to when you let go (it jumps to the other edge once you pass the middle of the screen). It remembers where you left it.
   Menus and tooltips open on the side facing the screen centre.
-- **Hide it:** **⋮ → Hide bar** collapses it to a slim tab on the edge (still showing the timer, progress and mutes). Click the tab to bring the bar back.
+- **Hide it:** the arrow at the bottom of the bar collapses it to a slim tab on the edge (still showing the timer, progress and mutes). Click the tab to bring the bar back, or drag it up, down or to the other edge (a dashed preview shows where it lands).
 - **After you stop:** the record button turns into a progress ring and a panel lists the steps (transcribing your mic and the
   system audio, summarizing, saving). When it is done you get **Summary** and **Folder** buttons. You can start a new
   recording meanwhile; a blue badge counts the meetings still being processed.
-- **Permissions:** if Microphone or Screen & System Audio Recording is missing, an amber warning button appears on the bar (and at the top of **⋮**). Click it to be asked, or taken to the right System Settings pane, the same as the menu bar's "Permissions needed…".
+- **Permissions:** if Microphone or Screen & System Audio Recording is missing, an amber warning button appears on the bar (and at the top of **⋮**). Click it to be asked, or taken to the right System Settings pane. macOS only lets a running app use Screen Recording after a restart, so once you have sent yourself to System Settings the button turns into a **restart** button: switch the permission on, then click it and the app restarts by itself (it asks you to stop a recording first).
 - **Private:** it never takes focus from the app you are in, and it is kept out of screen shares and out of your screenshots.
-- Turn it off with `overlay = false` in `config.toml`, or from the menu bar item **Show floating bar**.
+- If a display change leaves the bar off-screen, it moves back onto a visible screen.
 
-The menu shows each shortcut next to its item. Shortcuts work in any app and need no extra
+Hover a button on the bar to see its shortcut. Shortcuts work in any app and need no extra
 permission. If another app already uses the same combination, you get a notification.
 
-**While recording** the menu bar shows 🔴 and the elapsed time. **While processing** it shows ⏳.
 You can start a new recording while the previous meeting is still being processed; meetings are processed one at a time.
 
 ### How the summary is made
@@ -227,7 +226,7 @@ when it saves. If the file has a typo, you get a notification and the previous s
 | The icon disappears right after launch | Read `~/Library/Logs/MeetingTranscriber.log` |
 | "Claude Code CLI not found" | Install it, or set the path under Settings → Advanced |
 | Screenshot error about Screen Recording | Allow the app in System Settings → Privacy & Security, then restart it |
-| A meeting failed to process or summarize | Menu → **Summarize a meeting…**, or run the CLI command below |
+| A meeting failed to process or summarize | **⋮ → Summarize a meeting…**, or run the CLI command below |
 | The summary fails on a very long meeting | See "Very long meetings" above |
 | Other participants are silent in the transcript | The transcript starts with a ⚠ warning when a track was silent (stretches you muted yourself don't count). Check the Screen & System Audio Recording permission |
 
@@ -238,7 +237,7 @@ when it saves. If the file has a typo, you get a notification and the previous s
 ### Requirements and build
 `build_app.sh` builds the `sck-audio` Swift helper (system audio), creates `.venv` and installs
 `requirements.txt`, compiles a small native launcher, assembles `MeetingTranscriber.app`, ad-hoc code-signs it
-and registers the icon. The app is a thin launcher: it starts `.venv/bin/python -m mt.menubar` from the project
+and registers the icon. The app is a thin launcher: it starts `.venv/bin/python -m mt.app` from the project
 folder, so macOS attributes the permissions to the app instead of to Terminal or a bare Python binary.
 Output goes to `~/Library/Logs/MeetingTranscriber.log`.
 
@@ -306,7 +305,7 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 
 Prompts live in `~/Library/Application Support/MeetingTranscriber/prompts/` (copied from `prompts/` on first run).
 
-### Command line (no menu bar app)
+### Command line (no app)
 ```bash
 .venv/bin/python -m mt.cli record                                      # Enter = stop, s+Enter = screenshot
 .venv/bin/python -m mt.cli process <meeting-dir>                       # transcribe + summarize (summary skipped if auto_summarize is off)
@@ -325,7 +324,9 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 ### Project layout
 | Path | Purpose |
 |---|---|
-| `mt/menubar.py` | menu bar app, menu actions, permission flow |
+| `mt/app.py` | the app: actions, permission flow, glue to the bar |
+| `mt/overlay.py`, `mt/ui/overlay.html`, `mt/ui/popup.html` | the floating bar, its menu, tooltips and status panel |
+| `mt/jobs.py`, `mt/progress.py` | progress of the meetings being processed |
 | `mt/recorder.py`, `mt/flash.py` | recording, screenshots, screenshot flash |
 | `mt/transcribe.py`, `mt/audio.py` | Whisper transcription, echo handling, audio compression |
 | `mt/diarize.py` | telling the other people apart (sherpa-onnx) |
@@ -348,7 +349,7 @@ listed here so the work can be split up:
 | System audio | `sck-audio` (Swift, ScreenCaptureKit) | WASAPI loopback |
 | Transcription | `mlx-whisper` | `faster-whisper` |
 | Screenshots | Quartz | `mss` / Pillow |
-| Menu bar / tray | `rumps` | `pystray` or Qt |
+| Floating bar | `NSPanel` + WKWebView (PyObjC) | a topmost frameless window |
 | Settings window | WKWebView (PyObjC) | `pywebview` (WebView2), same `settings.html` |
 | Hotkeys | Carbon `RegisterEventHotKey` | Win32 `RegisterHotKey` |
 | Audio compression | `afconvert` | `ffmpeg` |

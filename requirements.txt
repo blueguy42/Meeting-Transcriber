@@ -4,7 +4,6 @@ sherpa-onnx
 sounddevice
 pyobjc-framework-Quartz
 Pillow
-rumps
 mcp
 pypandoc_binary
 pyobjc-framework-WebKit

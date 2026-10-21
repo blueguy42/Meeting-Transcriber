@@ -25,8 +25,6 @@ DEFAULTS = {
     "diarize_speakers": 0,
     "my_label": "Me",
     "others_label": "Others",
-    # Floating control bar on the screen edge (the menu bar icon always stays).
-    "overlay": True,
     "hotkey_screenshot": "<ctrl>+<alt>+s",
     "hotkey_record": "<ctrl>+<alt>+r",
     # Whether each side starts muted when the app opens (muting works any time, also between meetings).

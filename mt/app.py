@@ -1,16 +1,19 @@
-"""Menu bar app. Run via the double-clickable MeetingTranscriber.app (or `python -m mt.menubar`)."""
+"""The app: records, transcribes and summarizes meetings, controlled from the floating bar (overlay.py).
 
-import re
+Run via the double-clickable MeetingTranscriber.app (or `python -m mt.app`).
+"""
+
+import os
 import subprocess
+import sys
 import threading
 import time
 import traceback
 from pathlib import Path
 
-import rumps
+from PyObjCTools import AppHelper
 
 from . import config, permissions
-from .config import PROJECT_DIR
 from .flash import flash_screen
 from .hotkeys import Hotkeys
 from .jobs import Tracker
@@ -18,48 +21,64 @@ from .pipeline import process, summarize_existing
 from .recorder import Recorder
 from .transcribe import transcript_file
 
-MENUBAR_ICON = PROJECT_DIR / "assets" / "menubar.png"
-MAX_STATUS_CHARS = 45  # the menu is as wide as its longest item
-
-# NSEventModifierFlag values, to show a global hotkey as a native key hint (e.g. ⌃⌥R) in the menu
-MODIFIER_FLAGS = {"ctrl": 1 << 18, "alt": 1 << 19, "shift": 1 << 17, "cmd": 1 << 20}
-
-
 def on_main(fn, *args):
     """AppKit objects must only be touched from the main thread (hotkeys/workers run elsewhere)."""
-    from PyObjCTools import AppHelper
-
     AppHelper.callAfter(fn, *args)
 
 
 def notify(title, subtitle, message=""):
-    on_main(lambda: rumps.notification(title, subtitle, message))
+    def show():
+        from Foundation import NSUserNotification, NSUserNotificationCenter
+
+        n = NSUserNotification.alloc().init()
+        n.setTitle_(title)
+        n.setSubtitle_(subtitle)
+        n.setInformativeText_(message)
+        center = NSUserNotificationCenter.defaultUserNotificationCenter()
+        if center is None:  # not running from an app bundle: the log is all we have
+            print(f"{title}: {subtitle} {message}".strip(), flush=True)
+            return
+        center.deliverNotification_(n)
+
+    on_main(show)
+
+
+def alert(title: str, message: str, ok: str = "OK", cancel: str | None = None) -> bool:
+    """A modal dialog. True if the first button (ok) was pressed."""
+    from AppKit import NSAlert
+
+    a = NSAlert.alloc().init()
+    a.setMessageText_(title)
+    a.setInformativeText_(message)
+    a.addButtonWithTitle_(ok)
+    if cancel:
+        a.addButtonWithTitle_(cancel)
+    return a.runModal() == 1000  # NSAlertFirstButtonReturn
+
+
+_timers = []  # NSTimers are kept alive here
+
+
+def every(seconds: float, fn) -> None:
+    """Call fn() every `seconds` on the main thread, also while a dialog (open panel, alert) is showing."""
+    from AppKit import NSRunLoop, NSRunLoopCommonModes
+    from Foundation import NSTimer
+
+    t = NSTimer.timerWithTimeInterval_repeats_block_(seconds, True, lambda _t: fn())
+    NSRunLoop.mainRunLoop().addTimer_forMode_(t, NSRunLoopCommonModes)
+    _timers.append(t)
 
 
 def bring_to_front():
     from AppKit import NSApp
 
-    NSApp.activateIgnoringOtherApps_(True)  # a menu bar app's dialogs would otherwise open behind other windows
+    NSApp.activateIgnoringOtherApps_(True)  # an app without a Dock icon opens its dialogs behind other windows otherwise
 
 
 def _hide_dock_icon():
     from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 
     NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
-
-
-def show_hotkey(item: rumps.MenuItem, spec: str) -> None:
-    """Display "<ctrl>+<alt>+r" as the menu item's key hint. The real shortcut is the global hotkey;
-    the hint is only a label (and also triggers the item while the menu is open)."""
-    m = re.fullmatch(r"((?:<(?:ctrl|alt|shift|cmd)>\+)+)([a-z0-9])", spec or "")
-    if not m:  # F-keys etc. have no menu equivalent worth showing
-        item._menuitem.setKeyEquivalent_("")
-        return
-    mask = 0
-    for mod in re.findall(r"<(\w+)>", m.group(1)):
-        mask |= MODIFIER_FLAGS[mod]
-    item._menuitem.setKeyEquivalent_(m.group(2))
-    item._menuitem.setKeyEquivalentModifierMask_(mask)
 
 
 def fmt_hotkey(spec: str) -> str | None:
@@ -73,14 +92,8 @@ def fmt_hotkey(spec: str) -> str | None:
     return out + (last.strip("<>").upper() if last.startswith("<") else last.upper())
 
 
-class App(rumps.App):
+class App:
     def __init__(self):
-        # the app icon in the menu bar; the emoji is only a fallback if the image is missing
-        self._idle_title = None if MENUBAR_ICON.exists() else "🎙"
-        super().__init__(
-            "MT", title=self._idle_title, icon=str(MENUBAR_ICON) if MENUBAR_ICON.exists() else None,
-            template=False, quit_button=None,
-        )
         config.ensure_settings()
         self.cfg = config.defaults()
         self._reload_cfg()
@@ -97,48 +110,20 @@ class App(rumps.App):
             self._hotkeys = None
             notify("Meeting Transcriber", "Global hotkeys are off", str(e)[:150])
         self._settings = None  # the Settings window, created on first use
-        self._overlay = None  # the floating control bar, created on the first tick (needs the running app)
-        self._overlay_wanted = bool(self.cfg["overlay"])
+        self._overlay = None  # the floating control bar, created once the app is running
+        self._awaiting_restart = False  # you were sent to System Settings: macOS only applies Screen Recording after a restart
+        # Asking macOS which permissions are missing takes ~20 ms, and the bar needs the answer every second and on every
+        # hover: on the main thread that was the lag. A background thread keeps the answer fresh instead.
+        self._missing = permissions.missing()
+        threading.Thread(target=self._watch_permissions, daemon=True).start()
         self.jobs = Tracker((self.cfg["my_label"], self.cfg["others_label"]), on_change=lambda: on_main(self._push_overlay))
 
-        self.m_toggle = rumps.MenuItem("Start recording", callback=self.toggle)
-        self.m_shot = rumps.MenuItem("Take screenshot", callback=self.shot)
-        self.m_mic = rumps.MenuItem("Mute microphone", callback=self.toggle_mic)
-        self.m_system = rumps.MenuItem("Mute system audio", callback=self.toggle_system)
-        self.m_status = rumps.MenuItem("Idle")
-        self.m_perm = rumps.MenuItem("⚠ Permissions needed…", callback=self.fix_permissions)
-        self.m_overlay = rumps.MenuItem("Show floating bar", callback=self.toggle_overlay)
-        self.m_overlay.state = int(self._overlay_wanted)
-        self.m_style = rumps.MenuItem("Summary style")
-        self.style_items = {}
-        self._refresh_styles()
-        self.menu = [
-            self.m_perm,
-            self.m_toggle,
-            self.m_shot,
-            self.m_mic,
-            self.m_system,
-            None,
-            self.m_style,
-            rumps.MenuItem("Summarize a meeting…", callback=self.summarize_chosen),
-            None,
-            rumps.MenuItem("Settings…", callback=self.open_settings, key=","),
-            rumps.MenuItem("Open meetings folder", callback=lambda _: subprocess.run(["open", str(self.cfg["meetings_dir"])])),
-            self.m_overlay,
-            None,
-            self.m_status,
-            rumps.MenuItem("Quit", callback=self.quit),
-        ]
-        self.m_shot.set_callback(None)  # disabled until recording
         self.rec.mic_muted = bool(self.cfg["start_muted_mic"])  # the "when the app opens" setting
         self.rec.sys_muted = bool(self.cfg["start_muted_system"])
-        self._refresh_mute_items()
-        self.m_perm._menuitem.setHidden_(not permissions.missing())
         self._apply_settings()
-        self._timer = rumps.Timer(self._tick, 1)
-        self._timer.start()
-        self._welcome_timer = rumps.Timer(self._welcome, 1)  # once the app is up: first-launch permission step
-        self._welcome_timer.start()
+        on_main(self._push_overlay)  # shows the bar as soon as the run loop starts
+        every(1, self._tick)
+        AppHelper.callLater(1, self._welcome)  # first-launch permission step, once the bar is up
 
     def _reload_cfg(self) -> dict:
         """Re-read config.toml. A typo in it must not crash the app: keep the last good settings."""
@@ -161,30 +146,10 @@ class App(rumps.App):
         self._apply_settings()
 
     def _apply_settings(self):
-        """Make the menu and hotkeys follow the current settings."""
+        """Make the hotkeys follow the current settings."""
         self.prompt = self.cfg["default_prompt"]
         self.rec.cfg = self.cfg if not self.rec.recording else self.rec.cfg  # never change mid-recording
-        self._refresh_styles()
-        show_hotkey(self.m_toggle, self.cfg["hotkey_record"])
-        show_hotkey(self.m_shot, self.cfg["hotkey_screenshot"])
-        show_hotkey(self.m_mic, self.cfg["hotkey_mute_mic"])
-        show_hotkey(self.m_system, self.cfg["hotkey_mute_system"])
         self._start_hotkeys()
-
-    def _refresh_styles(self):
-        names = config.list_prompts()
-        for name in [n for n in self.style_items if n not in names]:
-            del self.m_style[name]
-            del self.style_items[name]
-        for name in names:
-            if name not in self.style_items:
-                self.style_items[name] = rumps.MenuItem(name, callback=self._pick_prompt)
-                self.m_style.add(self.style_items[name])
-        for name, item in self.style_items.items():
-            item.state = int(name == self.cfg["default_prompt"])
-
-    def _pick_prompt(self, item):
-        self._choose_prompt(item.title)
 
     def _choose_prompt(self, name):
         try:
@@ -195,21 +160,17 @@ class App(rumps.App):
         self._on_settings_changed()
 
     def _status(self, text):
-        text = str(text)
-        if len(text) > MAX_STATUS_CHARS:  # a long meeting title would stretch the whole menu
-            text = text[: MAX_STATUS_CHARS - 1].rstrip() + "…"
-        on_main(setattr, self.m_status, "title", text)
+        print(text, flush=True)  # the progress shown on the bar comes from jobs.py; this goes to the log
 
     # ---- permissions
-    def _welcome(self, timer):
-        timer.stop()
+    def _welcome(self):
         if permissions.welcomed():
             return
         if not permissions.missing():
             permissions.mark_welcomed()
             return
         bring_to_front()
-        if not rumps.alert(
+        if not alert(
             "Welcome to Meeting Transcriber",
             "To record your meetings it needs two permissions:\n\n"
             "•  Microphone: to record your voice\n"
@@ -231,12 +192,13 @@ class App(rumps.App):
             self._explain_denied("microphone")
         if not permissions.screen_granted():
             permissions.request_screen()
+            self._awaiting_restart = True
             notify("Meeting Transcriber", "Allow Screen & System Audio Recording",
-                   "Switch it on in System Settings, then reopen the app.")
+                   "Switch it on in System Settings, then click the restart button on the bar.")
 
     def _explain_denied(self, which):
         bring_to_front()
-        if rumps.alert(
+        if alert(
             f"{permissions.LABELS[which]} is turned off",
             "macOS only asks once. Turn it on for Meeting Transcriber in System Settings → Privacy & Security.",
             ok="Open System Settings", cancel="Not now",
@@ -244,7 +206,7 @@ class App(rumps.App):
             permissions.open_settings(which)
 
     def fix_permissions(self, _):
-        """Menu action: ask (if macOS hasn't yet) or point to the switch (if it was turned off)."""
+        """Ask (if macOS hasn't yet) or point to the switch (if it was turned off)."""
         todo = permissions.missing()
         if "microphone" in todo:
             if permissions.mic_status() == "undetermined":
@@ -253,22 +215,15 @@ class App(rumps.App):
             else:
                 self._explain_denied("microphone")
         elif "screen" in todo:
+            if self._awaiting_restart:  # you already switched it on: macOS applies it after a restart
+                self.restart()
+                return
             permissions.request_screen()
             permissions.open_settings("screen")
+            self._awaiting_restart = True
 
-    def _tick(self, _):
-        self.m_perm._menuitem.setHidden_(not permissions.missing())
+    def _tick(self):
         self._push_overlay()
-        if self.rec.recording:
-            s = int(time.time() - self.started)
-            # orange + a label instead of red while anything is muted, so it can't go unnoticed
-            self.title = f"{'🟠' if self._muted_names() else '🔴'} {s // 60:02d}:{s % 60:02d}{self._muted_suffix()}"
-        elif self.pending:
-            self.title = "⏳"
-        elif self._muted_names():
-            self.title = self._muted_suffix().strip()  # a mute is easy to forget between meetings
-        else:
-            self.title = self._idle_title
 
     # ---- floating bar (the Overlay asks us for content and tells us what you clicked: see overlay.py)
     def _overlay_state(self) -> dict:
@@ -280,14 +235,13 @@ class App(rumps.App):
             "micMuted": bool(self.rec.mic_muted),
             "sysMuted": bool(self.rec.sys_muted),
             "busy": self.jobs.busy,
-            "perm": bool(permissions.missing()),  # the same check as the menu's "⚠ Permissions needed…"
+            "perm": bool(self._missing),
+            "restart": self._restart_pending(),
             "job": {"stage": show["stage"], "progress": show["progress"]} if show else None,
         }
 
     def _push_overlay(self):
         """Create the bar on first use and keep it showing the app's current state."""
-        if not self._overlay_wanted:
-            return
         try:
             if self._overlay is None:
                 from .overlay import Overlay
@@ -295,25 +249,15 @@ class App(rumps.App):
                 self._overlay = Overlay(self)
                 self._overlay.show()
             self._overlay.update(self._overlay_state())
-        except Exception as e:  # a broken bar must never take the menu bar app down with it
+        except Exception as e:
             traceback.print_exc()
-            self._overlay_wanted = False
-            self.m_overlay.state = 0
-            notify("Meeting Transcriber", "Floating bar is off", str(e)[:150])
-
-    def toggle_overlay(self, _):
-        self._overlay_wanted = not self._overlay_wanted
-        self.m_overlay.state = int(self._overlay_wanted)
-        if self._overlay is not None:
-            if self._overlay_wanted:
-                self._overlay.hidden = False  # turning it on from the menu always shows the whole bar
-                self._overlay.show()
-            else:
-                self._overlay.hide()
-        self._push_overlay()
+            if self._overlay is None:  # without the bar there is no way to use the app
+                bring_to_front()
+                alert("The control bar could not start", f"{str(e)[:300]}\n\nSee ~/Library/Logs/MeetingTranscriber.log.")
+                self.quit(None)
 
     def overlay_action(self, op):
-        {"toggle": self.toggle, "shot": self.shot, "mute_mic": self.toggle_mic, "mute_system": self.toggle_system, "perm": self.fix_permissions}[op](None)
+        {"toggle": self.toggle, "shot": self.shot, "mute_mic": self.toggle_mic, "mute_system": self.toggle_system, "perm": self.fix_permissions, "quit": self.confirm_quit}[op](None)
         self._push_overlay()
 
     def overlay_tip(self, tip_id):
@@ -326,23 +270,24 @@ class App(rumps.App):
                      "hotkey": fmt_hotkey(cfg["hotkey_screenshot"]) if rec.recording else None},
             "mic": {"text": "Unmute microphone" if rec.mic_muted else "Mute microphone", "hotkey": fmt_hotkey(cfg["hotkey_mute_mic"])},
             "sys": {"text": "Unmute system audio" if rec.sys_muted else "Mute system audio", "hotkey": fmt_hotkey(cfg["hotkey_mute_system"])},
-            "perm": {"text": "Permissions needed: " + ", ".join(permissions.LABELS[m] for m in permissions.missing()), "hotkey": None},
+            "perm": {"text": "Restart to apply the permission" if self._restart_pending()
+                     else "Permissions needed: " + ", ".join(permissions.LABELS[m] for m in self._missing), "hotkey": None},
             "more": {"text": "More", "hotkey": None},
+            "hide": {"text": "Hide bar", "hotkey": None},
+            "quit": {"text": "Quit", "hotkey": None},
             "tab": {"text": "Show bar", "hotkey": None},
         }.get(tip_id)
 
     def overlay_menu(self):
         styles = [{"id": f"style:{n}", "label": n, "checked": n == self.cfg["default_prompt"]} for n in config.list_prompts()]
-        warn = [{"id": "perm", "label": "⚠ Permissions needed…"}, {"divider": True}] if permissions.missing() else []
+        label = "Restart to apply the permission" if self._restart_pending() else "⚠ Permissions needed…"
+        warn = [{"id": "perm", "label": label}, {"divider": True}] if self._missing else []
         return warn + [
             {"id": "style", "label": "Summary style", "sub": styles},
             {"id": "summarize", "label": "Summarize a meeting…"},
             {"divider": True},
             {"id": "settings", "label": "Settings…", "hint": "⌘,"},
             {"id": "folder", "label": "Open meetings folder"},
-            {"id": "hide", "label": "Hide bar"},
-            {"divider": True},
-            {"id": "quit", "label": "Quit"},
         ]
 
     def overlay_menu_click(self, item_id):
@@ -356,10 +301,6 @@ class App(rumps.App):
             self.open_settings(None)
         elif item_id == "folder":
             subprocess.run(["open", str(self.cfg["meetings_dir"])])
-        elif item_id == "hide" and self._overlay is not None:
-            self._overlay.set_hidden(True)
-        elif item_id == "quit":
-            self.quit(None)
 
     def overlay_status(self):
         return {"jobs": [j for j in self.jobs.snapshot()], "canRecord": not self.rec.recording}
@@ -378,7 +319,7 @@ class App(rumps.App):
             self.jobs.acknowledge()  # finished results are dismissed; running ones carry on
 
     def _open_status(self):
-        if self._overlay is not None and self._overlay_wanted and not self._overlay.hidden:
+        if self._overlay is not None and not self._overlay.hidden:
             self._overlay.open_status()
 
     # ---- hotkeys
@@ -411,12 +352,8 @@ class App(rumps.App):
                 self.rec.cfg = self._reload_cfg()  # pick up edits to config.toml
                 self.rec.start()
                 self.started = time.time()
-                self.m_toggle.title = "Stop & summarize"
-                self.m_shot.set_callback(self.shot)
                 self._status("Recording…")
             else:
-                self.m_toggle.title = "Start recording"
-                self.m_shot.set_callback(None)
                 d = self.rec.stop()
                 self._run_pipeline(d)
         except Exception as e:
@@ -424,30 +361,14 @@ class App(rumps.App):
             traceback.print_exc()
         self._push_overlay()
 
-    def _muted_names(self):
-        return [n for n, muted in (("mic", self.rec.mic_muted), ("sys", self.rec.sys_muted)) if muted]
-
-    def _muted_suffix(self):
-        names = self._muted_names()
-        return f" 🔇{'+'.join(names)}" if names else ""
-
-    def _refresh_mute_items(self):
-        for item, label, muted in (
-            (self.m_mic, "microphone", self.rec.mic_muted),
-            (self.m_system, "system audio", self.rec.sys_muted),
-        ):
-            item.title = f"Unmute {label}" if muted else f"Mute {label}"
-            item.state = int(muted)
-
     def _toggle_mute(self, track, label):
         muted = not (self.rec.mic_muted if track == "mic" else self.rec.sys_muted)
         if not self.rec.set_muted(track, muted):
             notify("Meeting Transcriber", f"Can't mute {label}", "The system audio helper isn't responding.")
             return
-        self._refresh_mute_items()
         if self.rec.recording:
             self._status(f"{label.capitalize()} muted - not being recorded" if muted else "Recording…")
-        on_main(self._tick, None)  # update the menu bar title and the floating bar right away
+        on_main(self._push_overlay)
 
     def toggle_mic(self, _):
         self._toggle_mute("mic", "microphone")
@@ -529,12 +450,73 @@ class App(rumps.App):
 
         threading.Thread(target=work, daemon=True).start()
 
+    def _watch_permissions(self):
+        """Refresh the cached list of missing permissions every couple of seconds (off the main thread)."""
+        while True:
+            time.sleep(2)
+            try:
+                self._missing = permissions.missing()
+            except Exception:
+                traceback.print_exc()
+
+    def _restart_pending(self) -> bool:
+        """You switched on Screen Recording in System Settings, so the next step is a restart."""
+        missing = self._missing
+        return self._awaiting_restart and "screen" in missing and "microphone" not in missing
+
+    def restart(self):
+        """Quit and start again (macOS only lets a running app use Screen Recording after a restart)."""
+        if self.rec.recording:
+            notify("Meeting Transcriber", "Stop the recording first", "Then click the restart button again.")
+            return
+        helper = os.environ.get("MT_HELPER", "")  # <App>.app/Contents/Resources/sck-audio when run as the app
+        bundle = Path(helper).parents[2] if helper.endswith(".app/Contents/Resources/sck-audio") else None
+        again = ["/usr/bin/open", str(bundle)] if bundle else [sys.executable, "-m", "mt.app"]
+        subprocess.Popen(["/bin/sh", "-c", 'sleep 1; exec "$@"', "sh", *again], start_new_session=True,
+                         cwd=str(Path(__file__).resolve().parent.parent), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.quit(None)
+
+    def confirm_quit(self, _):
+        """The quit button sits right on the bar, so ask before it throws away work in progress."""
+        what = "A recording is in progress" if self.rec.recording else "A meeting is still being processed" if self.jobs.busy else None
+        if what:
+            bring_to_front()
+            if not alert("Quit Meeting Transcriber?", f"{what}. " + ("Quitting stops it; the recording is kept and can be summarized later."
+                         if self.rec.recording else "Quitting now stops it; you can summarize the meeting again later."), ok="Quit", cancel="Cancel"):
+                return
+        self.quit(None)
+
     def quit(self, _):
         if self.rec.recording:
             self.rec.stop()
-        rumps.quit_application()
+        from AppKit import NSApp
+
+        NSApp.terminate_(None)
+
+
+_activity = None  # keeps the "do not nap" assertion alive for the life of the app
+
+
+def _stay_responsive():
+    """An app that is never frontmost (this one has no Dock icon and its panels never take focus) is a prime
+    candidate for App Nap: after a while macOS coalesces its timers and delays its events, which showed up as hover
+    that got slower and slower. Ask not to be napped."""
+    global _activity
+    from Foundation import NSProcessInfo
+
+    user_initiated, latency_critical = 0x00EFFFFF, 0xFF00000000  # NSActivityUserInitiatedAllowingIdleSystemSleep / NSActivityLatencyCritical
+    _activity = NSProcessInfo.processInfo().beginActivityWithOptions_reason_(
+        user_initiated | latency_critical, "The floating control bar has to react instantly"
+    )
+
+
+def main():
+    _hide_dock_icon()
+    _stay_responsive()
+    app = App()  # keep a reference: the timers and the bar call back into it
+    AppHelper.runEventLoop()
+    return app
 
 
 if __name__ == "__main__":
-    _hide_dock_icon()
-    App().run()
+    main()
