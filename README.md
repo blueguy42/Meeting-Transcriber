@@ -110,7 +110,7 @@ and shortcut. A red line across an icon means it is muted.
   system audio, summarizing, saving). When it is done you get **Summary** and **Folder** buttons. You can start a new
   recording meanwhile; a blue badge counts the meetings still being processed.
 - **Permissions:** if Microphone or Screen & System Audio Recording is missing, an amber warning button appears on the bar (and at the top of **⋮**). Click it to be asked, or taken to the right System Settings pane. macOS only lets a running app use Screen Recording after a restart, so once you have sent yourself to System Settings the button turns into a **restart** button: switch the permission on, then click it and the app restarts by itself (it asks you to stop a recording first).
-- **Private:** it never takes focus from the app you are in, and by default it is kept out of screen shares and out of your screenshots. Turn on **Settings → Floating bar → Show the bar in screenshots and screen shares** (`overlay_in_captures = true`) if you want it visible in them. It applies right away.
+- **Private:** it never takes focus from the app you are in, and by default it is kept out of screen shares and out of your screenshots. Turn on **Settings → Recording → Floating bar → Show the bar in screenshots and screen shares** (`overlay_in_captures = true`) if you want it visible in them. It applies right away.
 - If a display change leaves the bar off-screen, it moves back onto a visible screen.
 
 Hover a button on the bar to see its shortcut. Shortcuts work in any app and need no extra
@@ -127,7 +127,7 @@ A **summary style** is simply a set of instructions for Claude. Two come built i
 - **default**: overview, decisions, action items, open questions, discussion points and what was on screen.
 - **action-items-only**: just the decisions and a table of action items.
 
-In **Settings → Prompts** you can edit a style, create your own, rename or delete your own, or reset
+In **Settings → Summary styles** you can edit a style, create your own, rename or delete your own, or reset
 a built-in one to its original text (your edited version is kept as `<name>.md.bak`).
 
 ### Summarizing a meeting later
@@ -163,26 +163,41 @@ Each meeting gets its own folder inside `~/Documents/Meetings` (you can change t
 
 ## Settings
 
-Open **Settings…** from the menu (or ⌘ ,). Everything is checked before it is saved, and changes to
-shortcuts and the menu apply immediately. Other changes apply from the next recording.
+Open **Settings…** from the bar's ⋮ menu (or ⌘ ,). The window has five tabs. Everything is checked before it is saved;
+shortcuts and the floating bar update immediately, other changes apply from the next recording.
+
+**Recording**
 
 | Setting | What it does | Default |
 |---|---|---|
-| Language | Auto-detects Indonesian or English as people speak, or force one of them | Auto |
-| Model | The speech-to-text model. The "turbo" version is about 4× faster but slightly less accurate | large-v3 |
-| Vocabulary | Names and terms to spell correctly, e.g. *Budi, Dina, Tokopedia* | empty |
-| Other people: tell them apart | Numbers the other people on the call in the transcript (Others 1, Others 2…), by how much they talk. Downloads about 35 MB the first time and runs on your Mac | on |
-| Other people: how many | Work it out automatically, or set the number of other people if it merges or splits someone | automatic |
-| Your microphone / Everyone else | The speaker names shown in the transcript (they must differ) | Me / Others |
-| Audio compression | AAC (smallest, ~30 MB/hour), FLAC (lossless, ~110 MB/hour) or off (WAV, ~230 MB/hour) | AAC |
-| When a recording stops: summarize automatically | If off, the app only transcribes. Summarize later from the menu | on |
-| Every summary: also create a Word document | Also save each summary as `.docx`, automatic or manual | on |
-| Default summary style | The style used for automatic summaries | default |
-| Muting: when the app opens | Start with the microphone and/or system audio muted | both off |
-| Hotkeys | Click the box and press the combination you want (needs at least one modifier key) | Ctrl+Option+R / S / M / N |
-| Meetings folder | Where meetings are saved | `~/Documents/Meetings` |
-| Screenshot resolution (Advanced) | Size of saved screenshots, shown as pixel sizes with the percentage of your screen in grey | 50% |
-| Claude path and model (Advanced) | Leave empty to detect the Claude CLI and use your usual model | empty |
+| Meetings → Folder | Where meetings are saved; each meeting gets its own folder | `~/Documents/Meetings` |
+| Meetings → Audio files | AAC (smallest, ~30 MB/hour), FLAC (lossless, ~110 MB/hour) or keep the WAV (~230 MB/hour) | AAC |
+| Microphone and system audio → When the app starts | Start with the microphone and/or system audio muted | both off |
+| Screenshots → Resolution | Size of saved screenshots, shown as pixel sizes with the percentage of your screen | 50% |
+| Floating bar → Screen sharing | Show the bar in screenshots and screen shares | off |
+
+**Transcription**
+
+| Setting | What it does | Default |
+|---|---|---|
+| Speech recognition → Language | Detects Indonesian or English as people speak, or forces one of them | automatic |
+| Speech recognition → Model | The speech-to-text model. The "turbo" version is about 4× faster but slightly less accurate | large v3 |
+| Speech recognition → Names and terms | Names and terms to spell correctly, e.g. *Budi, Dina, Tokopedia* | empty |
+| Speakers → Other people | Numbers the other people on the call in the transcript (Others 1, Others 2…), by how much they talk. Downloads about 35 MB the first time and runs on your Mac | on |
+| Speakers → Number of people | Work it out automatically, or set the number of other people if it merges or splits someone | automatic |
+| Labels in the transcript | The names shown in the transcript for your microphone and for everyone else (they must differ) | Me / Others |
+
+**Summaries**
+
+| Setting | What it does | Default |
+|---|---|---|
+| After a recording → Summary | Summarize automatically with Claude. If off, the app only transcribes; summarize later from the bar | on |
+| After a recording → Word document | Also save each summary as `.docx`, automatic or manual | on |
+| Style → Default style | The style used for summaries. **Edit styles…** opens the Summary styles tab | default |
+| Claude → CLI and model | Leave empty to find the Claude Code CLI and use your usual model | empty |
+
+**Summary styles** is where you edit, create, rename or delete styles. **Shortcuts** holds the four global shortcuts:
+click a box and press the combination you want (it needs at least one modifier key).
 
 **Reset to defaults…** restores the original settings and keeps your old file as `config.toml.bak`.
 
@@ -206,7 +221,7 @@ when it saves. If the file has a typo, you get a notification and the previous s
   (Others 1, Others 2…, most talkative first); otherwise they all appear as "Others".
 - **Telling people apart** is by voice only, so it can't know names, and it makes mistakes: two similar voices may be
   merged, one person with a very different tone may be split, and a short remark can land on the wrong person. If the
-  count looks wrong, set *How many* other people in Settings. Overlapping speech goes to whoever talks most in that line.
+  count looks wrong, set *Number of people* under Settings → Transcription → Speakers. Overlapping speech goes to whoever talks most in that line.
 - **Echo:** without headphones your mic also hears the speakers. The app detects and drops most of this,
   but headphones give cleaner results, and talking over each other can leak some echo.
 - **Accuracy:** language is detected for each burst of speech, so a switch mid-sentence can garble a
@@ -225,7 +240,7 @@ when it saves. If the file has a typo, you get a notification and the previous s
 | Problem | What to do |
 |---|---|
 | The icon disappears right after launch | Read `~/Library/Logs/MeetingTranscriber.log` |
-| "Claude Code CLI not found" | Install it, or set the path under Settings → Advanced |
+| "Claude Code CLI not found" | Install it, or set the path under Settings → Summaries → Claude |
 | Screenshot error about Screen Recording | Allow the app in System Settings → Privacy & Security, then restart it |
 | A meeting failed to process or summarize | **⋮ → Summarize a meeting…**, or run the CLI command below |
 | The summary fails on a very long meeting | See "Very long meetings" above |

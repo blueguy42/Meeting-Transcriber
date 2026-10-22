@@ -41,6 +41,8 @@
   textarea { resize: vertical; }
   .check { display: flex; gap: 8px; align-items: center; padding-top: 4px; }
   .inline { display: flex; gap: 8px; }
+  .inline select, .inline input { flex: 1; min-width: 0; }
+  .inline .btn { flex: none; white-space: nowrap; }
   .choices label { display: flex; gap: 8px; align-items: baseline; padding: 2px 0; }
   .choices .pct { color: var(--muted); }
   button.btn { font: inherit; padding: 5px 12px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel);
@@ -76,128 +78,154 @@
 </head>
 <body>
 <nav role="tablist">
-  <button role="tab" id="t-general" aria-selected="true" data-tab="general">General</button>
-  <button role="tab" id="t-prompts" aria-selected="false" data-tab="prompts">Prompts</button>
+  <button role="tab" id="t-recording" aria-selected="true" data-tab="recording">Recording</button>
+  <button role="tab" id="t-transcription" aria-selected="false" data-tab="transcription">Transcription</button>
+  <button role="tab" id="t-summaries" aria-selected="false" data-tab="summaries">Summaries</button>
+  <button role="tab" id="t-styles" aria-selected="false" data-tab="styles">Summary styles</button>
+  <button role="tab" id="t-shortcuts" aria-selected="false" data-tab="shortcuts">Shortcuts</button>
 </nav>
 
 <main>
-  <section class="tab" id="tab-general">
+  <!-- ===== Recording: what is captured, and where it goes ===== -->
+  <section class="tab" id="tab-recording">
     <fieldset>
-      <legend>Transcription</legend>
-      <div class="row"><label for="language">Language</label>
-        <div><select id="language">
-          <option value="auto">Auto (Indonesian + English)</option>
-          <option value="id">Indonesian</option><option value="en">English</option></select></div></div>
-      <div class="row"><label for="model">Model</label>
-        <div><select id="model">
-          <option value="mlx-community/whisper-large-v3-mlx">Large-v3 (best quality)</option>
-          <option value="mlx-community/whisper-large-v3-turbo">Large-v3 turbo (faster; downloads on first use)</option></select></div></div>
-      <div class="row"><label for="vocabulary">Names &amp; terms</label>
-        <div><textarea id="vocabulary" rows="3" placeholder="Budi, Dina, Tokopedia"></textarea>
-        <div class="hint">People, products and jargon Whisper should spell correctly. Separate with commas or new lines.</div></div></div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Muting</legend>
-      <div class="row"><label>When the app opens</label>
-        <div><label class="check"><input type="checkbox" id="start_muted_mic"> Start with the microphone muted</label>
-        <label class="check"><input type="checkbox" id="start_muted_system"> Start with system audio muted</label>
-        <div class="hint">You can mute or unmute at any time, also between meetings, from the floating bar or with the hotkeys.</div></div></div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Summaries</legend>
-      <div class="row"><label>When a recording stops</label>
-        <div><label class="check"><input type="checkbox" id="auto_summarize"> Summarize it automatically with Claude</label>
-        <div class="hint">If off, only the transcript is made. Use “Summarize a meeting…” in the bar's ⋮ menu when you want a summary.</div></div></div>
-      <div class="row"><label>Every summary</label>
-        <div><label class="check"><input type="checkbox" id="export_docx"> Also create a Word document</label>
-        <div class="hint">Applies to automatic and manual summaries.</div></div></div>
-      <div class="row"><label for="default_prompt">Summary style</label>
-        <div><select id="default_prompt"></select></div></div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Audio</legend>
+      <legend>Meetings</legend>
+      <div class="row"><label for="meetings_dir">Folder</label>
+        <div><div class="inline"><input type="text" id="meetings_dir" spellcheck="false">
+        <button class="btn" id="choose">Choose…</button><button class="btn" id="openDir">Open</button></div>
+        <div class="hint">Every meeting gets its own folder here, with the recording, transcript, summary and screenshots.</div></div></div>
       <div class="row"><label for="compress_audio">Audio files</label>
         <div><select id="compress_audio">
-          <option value="aac">Compress to AAC (about 30 MB per hour)</option>
-          <option value="flac">Compress to FLAC (lossless, about 110 MB per hour)</option>
-          <option value="off">Keep original WAV (about 230 MB per hour)</option></select></div></div>
+          <option value="aac">Compress to AAC · about 30 MB per hour (recommended)</option>
+          <option value="flac">Compress to FLAC · lossless, about 110 MB per hour</option>
+          <option value="off">Keep the original WAV · about 230 MB per hour</option></select>
+        <div class="hint">Happens after the transcript is saved. The original is only deleted once the compressed copy checks out.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Microphone and system audio</legend>
+      <div class="row"><label>When the app starts</label>
+        <div><label class="check"><input type="checkbox" id="start_muted_mic"> Mute the microphone</label>
+        <label class="check"><input type="checkbox" id="start_muted_system"> Mute system audio</label>
+        <div class="hint">Muted audio is not recorded. You can mute or unmute at any time, even between meetings, from the floating bar or with the shortcuts.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Screenshots</legend>
+      <div class="row"><label>Resolution</label>
+        <div><div class="choices" id="screenshot_scale" role="radiogroup"></div>
+        <div class="hint">Relative to your main display. Smaller screenshots keep the summary request light.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Floating bar</legend>
+      <div class="row"><label>Screen sharing</label>
+        <div><label class="check"><input type="checkbox" id="overlay_in_captures"> Show the bar in screenshots and screen shares</label>
+        <div class="hint">Off by default: the bar stays out of your screenshots and out of what others see when you share your screen. Takes effect right away.</div></div></div>
+    </fieldset>
+  </section>
+
+  <!-- ===== Transcription: turning the audio into text ===== -->
+  <section class="tab" id="tab-transcription" hidden>
+    <fieldset>
+      <legend>Speech recognition</legend>
+      <div class="row"><label for="language">Language</label>
+        <div><select id="language">
+          <option value="auto">Detect automatically (Indonesian and English)</option>
+          <option value="id">Indonesian</option><option value="en">English</option></select>
+        <div class="hint">Automatic works for meetings that switch between the two.</div></div></div>
+      <div class="row"><label for="model">Model</label>
+        <div><select id="model">
+          <option value="mlx-community/whisper-large-v3-mlx">Large v3 · best quality</option>
+          <option value="mlx-community/whisper-large-v3-turbo">Large v3 turbo · faster (downloads on first use)</option></select>
+        <div class="hint">Runs on your Mac. No audio leaves it.</div></div></div>
+      <div class="row"><label for="vocabulary">Names and terms</label>
+        <div><textarea id="vocabulary" rows="3" placeholder="Budi, Dina, Tokopedia"></textarea>
+        <div class="hint">People, products and jargon to spell correctly. Separate with commas or new lines.</div></div></div>
     </fieldset>
 
     <fieldset>
       <legend>Speakers</legend>
       <div class="row"><label>Other people</label>
         <div><label class="check"><input type="checkbox" id="diarize"> Tell them apart in the transcript</label>
-        <div class="hint">They are numbered by how much they talk: Others 1, Others 2… The first time, it downloads about 35 MB. Runs on your Mac and adds a few minutes per hour of meeting.</div></div></div>
-      <div class="row"><label for="diarize_speakers">How many</label>
+        <div class="hint">They are numbered by how much they talk: Others 1, Others 2… Runs on your Mac, adds a few minutes per hour of meeting, and downloads about 35 MB the first time.</div></div></div>
+      <div class="row"><label for="diarize_speakers">Number of people</label>
         <div><select id="diarize_speakers"><option value="0">Work it out automatically</option></select>
-        <div class="hint">If it merges or splits people wrongly, set the number of other people on the call.</div></div></div>
+        <div class="hint">If people get merged or split wrongly, set how many other people were on the call.</div></div></div>
     </fieldset>
 
     <fieldset>
-      <legend>Transcript names</legend>
+      <legend>Labels in the transcript</legend>
       <div class="row"><label for="my_label">Your microphone</label><div><input type="text" id="my_label" maxlength="30"></div></div>
-      <div class="row"><label for="others_label">Everyone else</label><div><input type="text" id="others_label" maxlength="30"></div></div>
+      <div class="row"><label for="others_label">Everyone else</label>
+        <div><input type="text" id="others_label" maxlength="30">
+        <div class="hint">How lines are tagged, for example “Me: …” and “Others 1: …”. The two labels must differ.</div></div></div>
     </fieldset>
-
-    <fieldset>
-      <legend>Hotkeys</legend>
-      <div class="row"><label>Start / stop recording</label>
-        <div><input type="text" class="keys" id="hotkey_record" readonly></div></div>
-      <div class="row"><label>Take screenshot</label>
-        <div><input type="text" class="keys" id="hotkey_screenshot" readonly></div></div>
-      <div class="row"><label>Mute / unmute microphone</label>
-        <div><input type="text" class="keys" id="hotkey_mute_mic" readonly></div></div>
-      <div class="row"><label>Mute / unmute system audio</label>
-        <div><input type="text" class="keys" id="hotkey_mute_system" readonly>
-        <div class="hint">Click a box, then press the combination (it needs Ctrl, Option, Shift or Command). Esc cancels.</div></div></div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Floating bar</legend>
-      <div class="row"><label>Screenshots and sharing</label>
-        <div><label class="check"><input type="checkbox" id="overlay_in_captures"> Show the bar in screenshots and screen shares</label>
-        <div class="hint">Off by default: the bar stays out of your screenshots and out of what others see when you share your screen. Takes effect right away.</div></div></div>
-    </fieldset>
-
-    <fieldset>
-      <legend>Storage</legend>
-      <div class="row"><label for="meetings_dir">Meetings folder</label>
-        <div><div class="inline"><input type="text" id="meetings_dir" spellcheck="false">
-        <button class="btn" id="choose">Choose…</button><button class="btn" id="openDir">Open</button></div></div></div>
-    </fieldset>
-
-    <details>
-      <summary>Advanced</summary>
-      <div class="row"><label>Screenshot resolution</label>
-        <div><div class="choices" id="screenshot_scale" role="radiogroup"></div>
-        <div class="hint">Relative to your main display's full resolution.</div></div></div>
-      <div class="row"><label for="claude_path">Claude CLI path</label>
-        <div><input type="text" id="claude_path" spellcheck="false" placeholder="Leave empty to detect automatically">
-        <div class="hint" id="claudeFound"></div></div></div>
-      <div class="row"><label for="claude_model">Claude model</label>
-        <div><input type="text" id="claude_model" spellcheck="false" placeholder="Leave empty for your Claude Code default"></div></div>
-    </details>
   </section>
 
-  <section class="tab" id="tab-prompts" hidden>
+  <!-- ===== Summaries: what Claude writes after a meeting ===== -->
+  <section class="tab" id="tab-summaries" hidden>
+    <fieldset>
+      <legend>After a recording</legend>
+      <div class="row"><label>Summary</label>
+        <div><label class="check"><input type="checkbox" id="auto_summarize"> Summarize automatically with Claude</label>
+        <div class="hint">If off, you only get the transcript. Use ⋮ → Summarize a meeting… in the floating bar whenever you want a summary.</div></div></div>
+      <div class="row"><label>Word document</label>
+        <div><label class="check"><input type="checkbox" id="export_docx"> Also save each summary as a .docx</label>
+        <div class="hint">For every summary, automatic or manual.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Style</legend>
+      <div class="row"><label for="default_prompt">Default style</label>
+        <div><div class="inline"><select id="default_prompt"></select><button class="btn" id="editStyles">Edit styles…</button></div>
+        <div class="hint">A style is the set of instructions Claude follows when writing a summary. You can also change it from the floating bar.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Claude</legend>
+      <div class="row"><label for="claude_path">Claude Code CLI</label>
+        <div><input type="text" id="claude_path" spellcheck="false" placeholder="Leave empty to find it automatically">
+        <div class="hint" id="claudeFound"></div></div></div>
+      <div class="row"><label for="claude_model">Model</label>
+        <div><input type="text" id="claude_model" spellcheck="false" placeholder="Leave empty to use your Claude Code default">
+        <div class="hint">Summaries use your Claude subscription through the Claude Code CLI. The transcript and your screenshots are sent to Claude.</div></div></div>
+    </fieldset>
+  </section>
+
+  <!-- ===== Summary styles: the editor ===== -->
+  <section class="tab" id="tab-styles" hidden>
     <div class="prompts">
       <div class="list" id="promptList"></div>
       <div class="editor">
-        <div class="hint" id="promptHint">These are the instructions Claude gets when summarizing. Changes take effect on the next summary.</div>
+        <div class="hint" id="promptHint">The instructions Claude follows when summarizing. Changes apply to the next summary.</div>
         <textarea id="promptText" spellcheck="false"></textarea>
         <div class="actions">
-          <button class="btn primary" id="savePrompt">Save prompt</button>
+          <button class="btn primary" id="savePrompt">Save style</button>
           <button class="btn" id="resetPrompt">Reset to default</button>
           <button class="btn" id="renamePrompt">Rename…</button>
           <button class="btn danger" id="deletePrompt">Delete…</button>
           <span class="grow"></span>
-          <button class="btn" id="newPrompt">New prompt…</button>
+          <button class="btn" id="newPrompt">New style…</button>
         </div>
       </div>
     </div>
+  </section>
+
+  <!-- ===== Shortcuts ===== -->
+  <section class="tab" id="tab-shortcuts" hidden>
+    <fieldset>
+      <legend>Global shortcuts</legend>
+      <div class="row"><label>Start or stop recording</label>
+        <div><input type="text" class="keys" id="hotkey_record" readonly></div></div>
+      <div class="row"><label>Take a screenshot</label>
+        <div><input type="text" class="keys" id="hotkey_screenshot" readonly></div></div>
+      <div class="row"><label>Mute microphone</label>
+        <div><input type="text" class="keys" id="hotkey_mute_mic" readonly></div></div>
+      <div class="row"><label>Mute system audio</label>
+        <div><input type="text" class="keys" id="hotkey_mute_system" readonly>
+        <div class="hint">They work in any app, and the mute shortcuts switch back and forth. Click a box, then press the combination (it needs Ctrl, Option, Shift or Command). Esc cancels.</div></div></div>
+    </fieldset>
   </section>
 </main>
 
@@ -258,10 +286,14 @@ function ask({ title, body = "", ok = "OK", input = null, danger = false }) {
 }
 
 // ---- tabs
-document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => {
-  document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-selected", x === b));
-  $("tab-general").hidden = b.dataset.tab !== "general"; $("tab-prompts").hidden = b.dataset.tab !== "prompts"; say("");
-}));
+const TABS = ["recording", "transcription", "summaries", "styles", "shortcuts"];
+function showTab(name) {
+  document.querySelectorAll("nav button").forEach((x) => x.setAttribute("aria-selected", x.dataset.tab === name));
+  for (const t of TABS) $("tab-" + t).hidden = t !== name;
+  say("");
+}
+document.querySelectorAll("nav button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+$("editStyles").addEventListener("click", () => showTab("styles"));
 
 // ---- hotkey recorder
 const SYMBOL = { ctrl: "⌃", alt: "⌥", shift: "⇧", cmd: "⌘" };
@@ -340,11 +372,11 @@ function render(snap) {
 }
 $("save").addEventListener("click", () => run(async () => {
   render(await call("save_values", { values: collect() }));
-}, "Saved. Hotkeys and menu are updated; other changes apply from the next recording."));
+}, "Saved. Shortcuts and the floating bar are updated; other changes apply from the next recording."));
 $("choose").addEventListener("click", () => run(async () => { const p = await call("choose_folder"); if (p) $("meetings_dir").value = p; }));
 $("openDir").addEventListener("click", () => run(() => call("open_folder", { path: $("meetings_dir").value })));
 $("resetAll").addEventListener("click", async () => {
-  if (!(await ask({ title: "Reset settings to defaults?", body: "Language, model, hotkeys, names and the rest go back to their defaults. Your current file is kept as config.toml.bak. Prompts are not affected.", ok: "Reset", danger: true }))) return;
+  if (!(await ask({ title: "Reset settings to defaults?", body: "Every setting goes back to its default. Your current settings are kept as config.toml.bak. Your summary styles are not affected.", ok: "Reset", danger: true }))) return;
   run(async () => render(await call("reset_settings")), "Settings reset to defaults.");
 });
 
@@ -376,16 +408,16 @@ function renderPromptsKeepFocus() { // update the list's unsaved marker without 
 }
 $("savePrompt").addEventListener("click", () => run(async () => {
   const name = currentPrompt; render(await call("save_prompt", { name, text: $("promptText").value })); delete drafts[name]; renderPrompts();
-}, "Prompt saved. It is used for the next summary."));
+}, "Style saved. It is used for the next summary."));
 $("resetPrompt").addEventListener("click", async () => {
   const name = currentPrompt;
-  if (!(await ask({ title: `Reset "${name}" to its default?`, body: "Your edited version is kept as " + name + ".md.bak.", ok: "Reset", danger: true }))) return;
-  run(async () => { delete drafts[name]; render(await call("reset_prompt", { name })); }, "Prompt reset to default.");
+  if (!(await ask({ title: `Reset the "${name}" style to its default?`, body: "Your edited version is kept as " + name + ".md.bak.", ok: "Reset", danger: true }))) return;
+  run(async () => { delete drafts[name]; render(await call("reset_prompt", { name })); }, "Style reset to default.");
 });
 $("newPrompt").addEventListener("click", async () => {
-  const name = await ask({ title: "New prompt", body: "It starts as a copy of your default prompt.", ok: "Create", input: "" });
+  const name = await ask({ title: "New style", body: "It starts as a copy of your default style.", ok: "Create", input: "" });
   if (!name) return;
-  run(async () => { stash(); render(await call("new_prompt", { name })); currentPrompt = name.trim(); renderPrompts(); }, "Prompt created.");
+  run(async () => { stash(); render(await call("new_prompt", { name })); currentPrompt = name.trim(); renderPrompts(); }, "Style created.");
 });
 $("renamePrompt").addEventListener("click", async () => {
   const old = currentPrompt, name = await ask({ title: `Rename "${old}"`, ok: "Rename", input: old });
@@ -394,7 +426,7 @@ $("renamePrompt").addEventListener("click", async () => {
 });
 $("deletePrompt").addEventListener("click", async () => {
   const name = currentPrompt;
-  if (!(await ask({ title: `Delete "${name}"?`, body: "This removes the prompt file.", ok: "Delete", danger: true }))) return;
+  if (!(await ask({ title: `Delete the "${name}" style?`, body: "This removes the style file.", ok: "Delete", danger: true }))) return;
   run(async () => { delete drafts[name]; render(await call("delete_prompt", { name })); }, "Deleted.");
 });
 
