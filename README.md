@@ -101,7 +101,7 @@ The first time you open the app it explains what it needs, then macOS asks for p
 
 **Floating bar.** A small bar sits on the right edge of your screen with the same controls: record / stop
 (with the elapsed time), screenshot, mute microphone, mute system audio, and **⋮** for the rest of the menu
-(summary style, summarize a meeting, transcribe a meeting, settings, meetings folder). Hover a button for its name
+(summary style, transcribe a meeting, summarize a meeting, settings, meetings folder). Hover a button for its name
 and shortcut. A red line across an icon means it is muted.
 - **Move it:** drag it by its grip or any empty part, up, down or across. A dashed preview shows the screen edge it will snap to when you let go (it jumps to the other edge once you pass the middle of the screen). It remembers where you left it.
   Menus and tooltips open on the side facing the screen centre.

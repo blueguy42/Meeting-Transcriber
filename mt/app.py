@@ -287,8 +287,8 @@ class App:
         warn = [{"id": "perm", "label": label}, {"divider": True}] if self._missing else []
         return warn + [
             {"id": "style", "label": "Summary style", "sub": styles},
-            {"id": "summarize", "label": "Summarize a meeting…"},
             {"id": "transcribe", "label": "Transcribe a meeting…"},
+            {"id": "summarize", "label": "Summarize a meeting…"},
             {"divider": True},
             {"id": "settings", "label": "Settings…", "hint": "⌘,"},
             {"id": "folder", "label": "Open meetings folder"},
