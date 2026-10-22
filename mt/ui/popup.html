@@ -10,7 +10,10 @@
      flicker); the cards draw their own, and this padding leaves room for it. overlay.py allows for the padding. */
   #wrap { display: inline-flex; align-items: flex-start; gap: 4px; padding: 14px; }
   .card { box-sizing: border-box; background: #2a2b31; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
-  .tip { border-radius: 10px; padding: 7px 12px; white-space: nowrap; }
+  .tip { border-radius: 10px; padding: 7px 12px; white-space: pre; }  /* pre: a tooltip may have several lines */
+  .tip .tt { font-weight: 600; margin-bottom: 4px; }
+  .tip .li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .tip .li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ffb340; flex: none; }  /* amber, like the warning button */
   .k { color: #a9aab4; margin-left: 8px; }
   .menu { width: 210px; padding: 6px 0; }
   .sub { margin-top: 7px; min-width: 170px; padding: 6px 0; visibility: hidden; }
@@ -63,6 +66,9 @@
   }
 
   function renderTip(s) {
+    if (s.items) {  // a heading and a bulleted list
+      return '<div class="card tip"><div class="tt">' + esc(s.text) + "</div>" + s.items.map((i) => '<div class="li">' + esc(i) + "</div>").join("") + "</div>";
+    }
     return '<div class="card tip">' + esc(s.text) + (s.hotkey ? '<span class="k">' + esc(s.hotkey) + "</span>" : "") + "</div>";
   }
 

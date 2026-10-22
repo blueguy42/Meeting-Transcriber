@@ -109,7 +109,7 @@ and shortcut. A red line across an icon means it is muted.
   system audio, summarizing, saving). When it is done you get **Summary** and **Folder** buttons. You can start a new
   recording meanwhile; a blue badge counts the meetings still being processed.
 - **Permissions:** if Microphone or Screen & System Audio Recording is missing, an amber warning button appears on the bar (and at the top of **⋮**). Click it to be asked, or taken to the right System Settings pane. macOS only lets a running app use Screen Recording after a restart, so once you have sent yourself to System Settings the button turns into a **restart** button: switch the permission on, then click it and the app restarts by itself (it asks you to stop a recording first).
-- **Private:** it never takes focus from the app you are in, and it is kept out of screen shares and out of your screenshots.
+- **Private:** it never takes focus from the app you are in, and by default it is kept out of screen shares and out of your screenshots. Turn on **Settings → Floating bar → Show the bar in screenshots and screen shares** (`overlay_in_captures = true`) if you want it visible in them. It applies right away.
 - If a display change leaves the bar off-screen, it moves back onto a visible screen.
 
 Hover a button on the bar to see its shortcut. Shortcuts work in any app and need no extra
@@ -301,6 +301,7 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 | `claude_path`, `claude_model` | auto, Claude Code's default | |
 | `start_muted_mic`, `start_muted_system` | `false` | start the app with that side muted |
 | `overlay` | `true` | show the floating control bar |
+| `overlay_in_captures` | `false` | show the floating bar in screenshots and screen shares |
 | `hotkey_record`, `hotkey_screenshot`, `hotkey_mute_mic`, `hotkey_mute_system` | `<ctrl>+<alt>+r` / `s` / `m` / `n` | modifiers `<ctrl> <alt> <shift> <cmd>` plus a letter, digit or `<f1>`…`<f20>`; must differ |
 
 Prompts live in `~/Library/Application Support/MeetingTranscriber/prompts/` (copied from `prompts/` on first run).

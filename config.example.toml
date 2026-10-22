@@ -37,6 +37,9 @@
 # start_muted_mic = false
 # start_muted_system = false
 
+# Show the floating bar in screenshots and screen shares (default false: it is kept out of both):
+# overlay_in_captures = false
+
 # Global hotkeys (modifiers: ctrl, alt, shift, cmd):
 # hotkey_record = "<ctrl>+<alt>+r"
 # hotkey_screenshot = "<ctrl>+<alt>+s"

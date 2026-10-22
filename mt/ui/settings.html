@@ -102,7 +102,7 @@
       <div class="row"><label>When the app opens</label>
         <div><label class="check"><input type="checkbox" id="start_muted_mic"> Start with the microphone muted</label>
         <label class="check"><input type="checkbox" id="start_muted_system"> Start with system audio muted</label>
-        <div class="hint">You can mute or unmute at any time, also between meetings, from the menu or with the hotkeys.</div></div></div>
+        <div class="hint">You can mute or unmute at any time, also between meetings, from the floating bar or with the hotkeys.</div></div></div>
     </fieldset>
 
     <fieldset>
@@ -153,6 +153,13 @@
       <div class="row"><label>Mute / unmute system audio</label>
         <div><input type="text" class="keys" id="hotkey_mute_system" readonly>
         <div class="hint">Click a box, then press the combination (it needs Ctrl, Option, Shift or Command). Esc cancels.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Floating bar</legend>
+      <div class="row"><label>Screenshots and sharing</label>
+        <div><label class="check"><input type="checkbox" id="overlay_in_captures"> Show the bar in screenshots and screen shares</label>
+        <div class="hint">Off by default: the bar stays out of your screenshots and out of what others see when you share your screen. Takes effect right away.</div></div></div>
     </fieldset>
 
     <fieldset>
@@ -214,7 +221,7 @@
 const $ = (id) => document.getElementById(id);
 const FIELDS = ["language", "model", "compress_audio", "default_prompt", "my_label", "others_label",
                 "meetings_dir", "claude_path", "claude_model"];
-const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system", "diarize"];
+const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system", "diarize", "overlay_in_captures"];
 for (let n = 1; n <= 12; n++) $("diarize_speakers").add(new Option(n === 1 ? "1 other person" : n + " other people", String(n)));
 const syncDiarize = () => { $("diarize_speakers").disabled = !$("diarize").checked; };
 $("diarize").addEventListener("change", syncDiarize);

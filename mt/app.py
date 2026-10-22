@@ -149,6 +149,8 @@ class App:
         """Make the hotkeys follow the current settings."""
         self.prompt = self.cfg["default_prompt"]
         self.rec.cfg = self.cfg if not self.rec.recording else self.rec.cfg  # never change mid-recording
+        if self._overlay is not None:
+            self._overlay.set_capturable(bool(self.cfg["overlay_in_captures"]))
         self._start_hotkeys()
 
     def _choose_prompt(self, name):
@@ -270,8 +272,8 @@ class App:
                      "hotkey": fmt_hotkey(cfg["hotkey_screenshot"]) if rec.recording else None},
             "mic": {"text": "Unmute microphone" if rec.mic_muted else "Mute microphone", "hotkey": fmt_hotkey(cfg["hotkey_mute_mic"])},
             "sys": {"text": "Unmute system audio" if rec.sys_muted else "Mute system audio", "hotkey": fmt_hotkey(cfg["hotkey_mute_system"])},
-            "perm": {"text": "Restart to apply the permission" if self._restart_pending()
-                     else "Permissions needed: " + ", ".join(permissions.LABELS[m] for m in self._missing), "hotkey": None},
+            "perm": {"text": "Restart to apply the permission", "hotkey": None} if self._restart_pending()
+                    else {"text": "Permissions needed", "items": [permissions.LABELS[m] for m in self._missing], "hotkey": None},
             "more": {"text": "More", "hotkey": None},
             "hide": {"text": "Hide bar", "hotkey": None},
             "quit": {"text": "Quit", "hotkey": None},

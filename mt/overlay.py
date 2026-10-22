@@ -130,7 +130,7 @@ class _OverlayGhostView(NSView):
 
 
 class _Ghost:
-    def __init__(self):
+    def __init__(self, capturable: bool = False):
         rect = NSMakeRect(0, 0, 64, 64)
         p = self.panel = _OverlayPanel.alloc().initWithContentRect_styleMask_backing_defer_(rect, NONACTIVATING_PANEL, 2, False)
         p.setReleasedWhenClosed_(False)
@@ -146,9 +146,12 @@ class _Ghost:
         p.setBackgroundColor_(NSColor.clearColor())
         p.setHasShadow_(False)
         p.setIgnoresMouseEvents_(True)
-        p.setSharingType_(1 if os.environ.get("MT_OVERLAY_CAPTURABLE") else 0)
+        self.set_capturable(capturable)
         self.view = _OverlayGhostView.alloc().initWithFrame_(rect)
         p.setContentView_(self.view)
+
+    def set_capturable(self, flag: bool) -> None:
+        self.panel.setSharingType_(1 if (flag or os.environ.get("MT_OVERLAY_CAPTURABLE")) else 0)
 
     def show(self, frame, radius: float, ext) -> None:
         self.view.radius, self.view.ext = radius, ext
@@ -163,7 +166,7 @@ class _Ghost:
 class _Surface:
     """One transparent panel with a web page in it."""
 
-    def __init__(self, page: str, on_message, level: int = STATUS_LEVEL, ignore_mouse: bool = False, shadow: bool = True, on_pointer=None):
+    def __init__(self, page: str, on_message, level: int = STATUS_LEVEL, ignore_mouse: bool = False, shadow: bool = True, on_pointer=None, capturable: bool = False):
         self.on_message = on_message
         rect = NSMakeRect(0, 0, 64, 64)
         self.panel = _OverlayPanel.alloc().initWithContentRect_styleMask_backing_defer_(rect, NONACTIVATING_PANEL, 2, False)
@@ -183,8 +186,7 @@ class _Surface:
         p.setHasShadow_(shadow)
         p.setIgnoresMouseEvents_(ignore_mouse)
         p.setAcceptsMouseMovedEvents_(True)
-        # NSWindowSharingNone keeps the panels out of screen shares and captures (MT_OVERLAY_CAPTURABLE=1: for testing only)
-        p.setSharingType_(1 if os.environ.get("MT_OVERLAY_CAPTURABLE") else 0)
+        self.set_capturable(capturable)
 
         cfg = WKWebViewConfiguration.alloc().init()
         controller = WKUserContentController.alloc().init()
@@ -199,6 +201,11 @@ class _Surface:
         p.setContentView_(self.web)
         self.web.updateTrackingAreas()
         self.web.updateTrackingAreas()
+
+    def set_capturable(self, flag: bool) -> None:
+        """NSWindowSharingNone keeps the panel out of screenshots and screen shares (the default);
+        MT_OVERLAY_CAPTURABLE=1 forces it visible, for testing."""
+        self.panel.setSharingType_(1 if (flag or os.environ.get("MT_OVERLAY_CAPTURABLE")) else 0)
 
     def _receive(self, raw: str) -> None:
         try:
@@ -261,12 +268,8 @@ class Overlay:
         self._monitor = None
         self._anchor = {}
         self._load()
-        self.ghost = _Ghost()  # the dashed preview shown while dragging
-        self.bar = _Surface("overlay.html", self._on_bar, on_pointer=lambda: self._pointer_moved())
-        self.tip = _Surface("popup.html", lambda m: self._on_popup("tip", m), level=STATUS_LEVEL + 1, ignore_mouse=True, shadow=False)
-        self.menu = _Surface("popup.html", lambda m: self._on_popup("menu", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved())
-        self.status = _Surface("popup.html", lambda m: self._on_popup("status", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved())
-        self._popups = {"tip": self.tip, "menu": self.menu, "status": self.status}
+        self._capturable = bool(getattr(host, "cfg", {}).get("overlay_in_captures", False))  # shown in screenshots and screen shares?
+        self._build_surfaces()
         self._menu_rects = []  # the visible parts of the menu panel, in its own page coordinates
         self._menu_rows = []  # its rows (x, y, w, h, index), same coordinates
         self._bar_items = []  # the toolbar buttons (id, x, y, w, h) in the bar page's coordinates
@@ -285,7 +288,39 @@ class Overlay:
         ]
         self._want = {"tip": False, "menu": False, "status": False}  # shown once the page has measured itself
 
+    def _build_surfaces(self) -> None:
+        cap = self._capturable
+        self.ghost = _Ghost(cap)  # the dashed preview shown while dragging
+        self.bar = _Surface("overlay.html", self._on_bar, on_pointer=lambda: self._pointer_moved(), capturable=cap)
+        self.tip = _Surface("popup.html", lambda m: self._on_popup("tip", m), level=STATUS_LEVEL + 1, ignore_mouse=True, shadow=False, capturable=cap)
+        self.menu = _Surface("popup.html", lambda m: self._on_popup("menu", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved(), capturable=cap)
+        self.status = _Surface("popup.html", lambda m: self._on_popup("status", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved(), capturable=cap)
+        self._popups = {"tip": self.tip, "menu": self.menu, "status": self.status}
+
     # ---- visibility
+    def set_capturable(self, flag: bool) -> None:
+        """Show the bar in screenshots and screen shares, or keep it out of them (live, from the setting)."""
+        flag = bool(flag)
+        if flag == self._capturable:
+            return
+        self._capturable = flag
+        if flag:
+            for surface in (self.bar, self.tip, self.menu, self.status, self.ghost):
+                surface.set_capturable(True)
+            return
+        # macOS does not take "visible to captures" back from a window that already has it (the window server keeps the old
+        # state), so the panels are rebuilt: new ones start hidden from captures.
+        was_visible = self.bar.visible
+        self.close_popups()
+        old = (self.bar, self.tip, self.menu, self.status, self.ghost)
+        self._bar_items, self._bar_hover, self._menu_rows, self._menu_rects, self._status_rows = [], None, [], [], []
+        self._build_surfaces()
+        for surface in old:
+            surface.panel.orderOut_(None)
+            surface.panel.close()
+        if was_visible:
+            self.show()
+
     @property
     def visible(self) -> bool:
         return self.bar.visible

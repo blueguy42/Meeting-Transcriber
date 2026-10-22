@@ -25,6 +25,8 @@ DEFAULTS = {
     "diarize_speakers": 0,
     "my_label": "Me",
     "others_label": "Others",
+    # Show the floating bar in screenshots and screen shares (off: it is kept out of both).
+    "overlay_in_captures": False,
     "hotkey_screenshot": "<ctrl>+<alt>+s",
     "hotkey_record": "<ctrl>+<alt>+r",
     # Whether each side starts muted when the app opens (muting works any time, also between meetings).

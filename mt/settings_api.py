@@ -23,7 +23,7 @@ EDITABLE = [
     "language", "model", "vocabulary", "my_label", "others_label", "compress_audio", "export_docx",
     "auto_summarize", "default_prompt", "hotkey_record", "hotkey_screenshot",
     "hotkey_mute_mic", "hotkey_mute_system", "start_muted_mic", "start_muted_system", "diarize", "diarize_speakers", "meetings_dir",
-    "screenshot_scale", "claude_path", "claude_model",
+    "screenshot_scale", "claude_path", "claude_model", "overlay_in_captures",
 ]
 
 
@@ -86,7 +86,7 @@ def _check(key: str, v):
         if v not in COMPRESSION:
             raise ValueError("compress_audio must be aac, flac or off.")
         return v
-    if key in ("export_docx", "auto_summarize", "start_muted_mic", "start_muted_system", "diarize"):
+    if key in ("export_docx", "auto_summarize", "start_muted_mic", "start_muted_system", "diarize", "overlay_in_captures"):
         if not isinstance(v, bool):
             raise ValueError(f"{key} must be on or off.")
         return v
