@@ -2,7 +2,7 @@ import re
 import shutil
 from pathlib import Path
 
-from .audio import compress_meeting
+from .audio import compress_meeting, has_audio
 from .progress import DOCX, SUMMARIZING
 from .summarize import summarize_meeting
 from .transcribe import transcribe_meeting, transcript_file
@@ -19,6 +19,15 @@ def process(meeting_dir: Path, cfg: dict, prompt_name: str | None = None, progre
         return meeting_dir, transcript
     progress(SUMMARIZING)
     return finish(meeting_dir, cfg, summarize_meeting(meeting_dir, cfg, prompt_name), progress)
+
+
+def transcribe_existing(meeting_dir: Path, cfg: dict, prompt_name: str | None = None, progress=print) -> tuple[Path, Path]:
+    """Transcribe a recorded meeting (again: after changing the model, language or vocabulary, say), then summarize it
+    again if that is on. An existing transcript.md is left alone until the transcription and the speaker separation
+    have both finished, and is then replaced by the new one (if anything fails before that, the old one is still there)."""
+    if not has_audio(meeting_dir):
+        raise ValueError("This meeting has no recording to transcribe (the audio was deleted).")
+    return process(meeting_dir, cfg, prompt_name, progress)
 
 
 def summarize_existing(meeting_dir: Path, cfg: dict, prompt_name: str | None = None, progress=print) -> tuple[Path, Path]:

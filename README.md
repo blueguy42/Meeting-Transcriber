@@ -95,12 +95,13 @@ The first time you open the app it explains what it needs, then macOS asks for p
 | Mute your microphone / the system audio | The mic and speaker buttons on the bar, or **Ctrl + Option + M** (microphone) and **Ctrl + Option + N** (system audio). Press again to unmute. This works any time, also before you start recording, and the state carries over to the next recording. A muted button gets a red line across it (also on the hidden tab). Muted audio is replaced with silence before it is saved, so it cannot be recovered. The transcript marks the stretch as `(Me muted)` / `(Me unmuted)`. |
 | Choose how the summary is written | **⋮ → Summary style** (remembered next time) |
 | Summarize or re-summarize any meeting | **⋮ → Summarize a meeting…**, then pick the meeting's folder |
+| Transcribe a meeting (again, after changing the model, language or vocabulary) | **⋮ → Transcribe a meeting…**, then pick its folder. The old `transcript.md` stays as it is until the new transcription and speaker separation have finished, and is then replaced; the meeting is summarized again if that is on. |
 | Change settings or edit the summary styles | **⋮ → Settings…** (⌘ ,) |
 | Open the folder with all meetings | **⋮ → Open meetings folder** |
 
 **Floating bar.** A small bar sits on the right edge of your screen with the same controls: record / stop
 (with the elapsed time), screenshot, mute microphone, mute system audio, and **⋮** for the rest of the menu
-(summary style, summarize a meeting, settings, meetings folder). Hover a button for its name
+(summary style, summarize a meeting, transcribe a meeting, settings, meetings folder). Hover a button for its name
 and shortcut. A red line across an icon means it is muted.
 - **Move it:** drag it by its grip or any empty part, up, down or across. A dashed preview shows the screen edge it will snap to when you let go (it jumps to the other edge once you pass the middle of the screen). It remembers where you left it.
   Menus and tooltips open on the side facing the screen centre.

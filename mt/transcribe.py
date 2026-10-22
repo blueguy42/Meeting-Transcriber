@@ -454,5 +454,8 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
     )
     out = meeting_dir / "transcript.md"
     header = "".join(f"> {n}\n" for n in notes)
-    out.write_text(header + f"# Transcript ({datetime.fromisoformat(meta['started']):%A %Y-%m-%d %H:%M}, {meta['duration'] / 60:.0f} min)\n\n" + "\n".join(e[1] for e in events) + "\n")
+    text = (header + f"# Transcript ({datetime.fromisoformat(meta['started']):%A %Y-%m-%d %H:%M}, {meta['duration'] / 60:.0f} min)\n\n" + "\n".join(e[1] for e in events) + "\n")
+    tmp = out.with_suffix(".md.tmp")  # the old transcript, if any, is replaced in one step, only now that everything is done
+    tmp.write_text(text)
+    tmp.replace(out)
     return out

@@ -17,7 +17,8 @@ from . import config, permissions
 from .flash import flash_screen
 from .hotkeys import Hotkeys
 from .jobs import Tracker
-from .pipeline import process, summarize_existing
+from .audio import has_audio
+from .pipeline import process, summarize_existing, transcribe_existing
 from .recorder import Recorder
 from .transcribe import transcript_file
 
@@ -287,6 +288,7 @@ class App:
         return warn + [
             {"id": "style", "label": "Summary style", "sub": styles},
             {"id": "summarize", "label": "Summarize a meeting…"},
+            {"id": "transcribe", "label": "Transcribe a meeting…"},
             {"divider": True},
             {"id": "settings", "label": "Settings…", "hint": "⌘,"},
             {"id": "folder", "label": "Open meetings folder"},
@@ -299,6 +301,8 @@ class App:
             self.fix_permissions(None)
         elif item_id == "summarize":
             self.summarize_chosen(None)
+        elif item_id == "transcribe":
+            self.transcribe_chosen(None)
         elif item_id == "settings":
             self.open_settings(None)
         elif item_id == "folder":
@@ -388,8 +392,8 @@ class App:
         except Exception as e:
             notify("Meeting Transcriber", "Screenshot failed", str(e))
 
-    def summarize_chosen(self, _):
-        """Pick a meeting folder to summarize or re-summarize (in the current Summary style)."""
+    def _choose_meeting(self, message: str, button: str) -> Path | None:
+        """Ask for a meeting folder (a folder picker starting in the meetings folder)."""
         from AppKit import NSOpenPanel
         from Foundation import NSURL
 
@@ -397,18 +401,34 @@ class App:
         panel = NSOpenPanel.openPanel()
         panel.setCanChooseDirectories_(True)
         panel.setCanChooseFiles_(False)
-        panel.setMessage_("Choose a meeting folder to summarize")
-        panel.setPrompt_("Summarize")
+        panel.setMessage_(message)
+        panel.setPrompt_(button)
         panel.setDirectoryURL_(NSURL.fileURLWithPath_(str(self.cfg["meetings_dir"])))
         if panel.runModal() != 1:
+            return None
+        return Path(str(panel.URL().path()))
+
+    def summarize_chosen(self, _):
+        """Pick a meeting folder to summarize or re-summarize (in the current Summary style)."""
+        d = self._choose_meeting("Choose a meeting folder to summarize", "Summarize")
+        if d is None:
             return
-        d = Path(str(panel.URL().path()))
         if not ((d / "meta.json").exists() or transcript_file(d).exists()):
             notify("Meeting Transcriber", "Not a meeting folder", "It needs a transcript or a recording (meta.json).")
             return
         self._run_pipeline(d, summarize_only=True)
 
-    def _run_pipeline(self, d, summarize_only=False):
+    def transcribe_chosen(self, _):
+        """Pick a meeting folder and transcribe its recording (again), then summarize it, if that is on."""
+        d = self._choose_meeting("Choose a meeting folder to transcribe", "Transcribe")
+        if d is None:
+            return
+        if not (d / "meta.json").exists() or not has_audio(d):
+            notify("Meeting Transcriber", "Nothing to transcribe", "That folder has no recording (meta.json and the audio files).")
+            return
+        self._run_pipeline(d, transcribe_only=True)
+
+    def _run_pipeline(self, d, summarize_only=False, transcribe_only=False):
         with self._pending_lock:
             self.pending += 1
         prompt = self.prompt
@@ -416,9 +436,9 @@ class App:
         self.jobs.labels = (cfg0["my_label"], cfg0["others_label"])
         job = self.jobs.add(
             d,
-            summarize=bool(cfg0["auto_summarize"] or summarize_only),
+            summarize=bool(cfg0["auto_summarize"] or summarize_only),  # (transcribing a meeting follows the auto-summarize setting)
             transcribe=not (summarize_only and transcript_file(d).exists()),
-            recorded=not summarize_only,
+            recorded=not (summarize_only or transcribe_only),  # an existing meeting: no "Recorded" step
         )
         on_main(self._open_status)
 
@@ -431,7 +451,9 @@ class App:
                 try:
                     cfg = self._reload_cfg()
                     self.jobs.begin(job)
-                    if summarize_only:
+                    if transcribe_only:
+                        new_dir, out = transcribe_existing(d, cfg, prompt, progress=say)
+                    elif summarize_only:
                         new_dir, out = summarize_existing(d, cfg, prompt, progress=say)
                     else:
                         new_dir, out = process(d, cfg, prompt, progress=say)

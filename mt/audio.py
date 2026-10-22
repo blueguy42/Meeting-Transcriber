@@ -23,6 +23,13 @@ def audio_dir(meeting_dir: Path) -> Path:
     return d if d.is_dir() else meeting_dir
 
 
+def has_audio(meeting_dir: Path) -> bool:
+    """Is there a recording to transcribe (WAV or compressed) in this meeting folder?"""
+    base = audio_dir(meeting_dir)
+    exts = ["wav"] + [e for e, _ in FORMATS.values()]
+    return any((base / f"{name}.{ext}").exists() for name in TRACKS for ext in exts)
+
+
 def _duration(path: Path) -> float | None:
     r = subprocess.run(["afinfo", str(path)], capture_output=True, text=True)
     m = re.search(r"estimated duration:\s*([\d.]+)", r.stdout)

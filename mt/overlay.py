@@ -493,6 +493,7 @@ class Overlay:
             self.close_menu()
             return
         self.hide_tip()
+        self.close_status()  # one popup at a time: opening More closes the processing panel
         self._anchor["menu"] = anchor
         self._want["menu"] = True
         self.menu.render({"kind": "menu", "side": self.side, "items": self.host.overlay_menu(), "fresh": True})
