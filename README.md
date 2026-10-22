@@ -214,8 +214,9 @@ when it saves. If the file has a typo, you get a notification and the previous s
   app sets no limit of its own (only a 30-minute timeout), but Claude's own limits apply. A very long meeting or
   dozens of screenshots can make the summary fail. Your transcript and audio are already saved, so
   you can retry with **Summarize a meeting…**.
-- **Microphone:** the app uses whichever microphone macOS has selected when you start recording
-  (there is no picker). Switching mid-meeting, for example when AirPods connect, may stall the recording.
+- **Microphone:** the app uses whichever microphone macOS has selected (there is no picker). If you switch it
+  mid-meeting, for example when AirPods connect, or the microphone is unplugged, the app follows the new default
+  within a few seconds and fills the gap with silence. With no microphone available it keeps retrying.
 - **Other participants:** the app records everything your Mac plays, from all apps mixed, whatever
   speakers or headphones you use. With *Tell them apart* on (the default) the other people are numbered by voice
   (Others 1, Others 2…, most talkative first); otherwise they all appear as "Others".
@@ -259,6 +260,7 @@ Output goes to `~/Library/Logs/MeetingTranscriber.log`.
 
 ### How recording works
 - **Microphone:** `sounddevice` input stream on the default input device, 16 kHz mono, written to `recordings/mic.wav`.
+  A watchdog reopens the stream when the default input changes, disappears or stops delivering audio (gap padded with silence).
 - **System audio:** the `sck-audio` helper uses ScreenCaptureKit on the first display (all system audio, excluding the app itself) and
   writes `recordings/system.wav`. It reports the start time of the first audio buffer so the tracks can be aligned.
 - **Screenshots:** captured with Quartz at the real pixel resolution of the display under the mouse, scaled by
@@ -266,7 +268,8 @@ Output goes to `~/Library/Logs/MeetingTranscriber.log`.
 - **Hotkeys:** Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission and runs
   callbacks on the main thread.
 - `meta.json` stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
-  `mic_muted` / `system_muted` (muted spans, in seconds from the recording start).
+  `mic_muted` / `system_muted` (muted spans, in seconds from the recording start), and `mic_device_events` when the microphone changed
+  mid-recording (`changed` / `stalled` when it was lost, `reopened` with the new device name; `at` in seconds from the recording start).
 - **Muting** replaces the audio with silence at the source (zeros in the mic callback; a `--muted` launch flag plus `MUTE`/`UNMUTE` commands on the
   `sck-audio` helper's stdin). The files keep running, so they stay aligned with the clock and the screenshots.
 

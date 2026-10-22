@@ -56,6 +56,24 @@ def _screen_access() -> bool:
     return False
 
 
+def _default_input_id() -> int | None:
+    """CoreAudio's current default input device id (cheap; PortAudio's own device list is a stale snapshot)."""
+    try:
+        import ctypes
+
+        ca = ctypes.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
+
+        class Addr(ctypes.Structure):
+            _fields_ = [("selector", ctypes.c_uint32), ("scope", ctypes.c_uint32), ("element", ctypes.c_uint32)]
+
+        addr = Addr(0x64496E20, 0x676C6F62, 0)  # 'dIn ' (default input), 'glob', main element
+        dev, size = ctypes.c_uint32(0), ctypes.c_uint32(4)
+        err = ca.AudioObjectGetPropertyData(1, ctypes.byref(addr), 0, None, ctypes.byref(size), ctypes.byref(dev))
+        return dev.value if err == 0 and dev.value else None
+    except Exception:
+        return None
+
+
 def _make_resampler(src: int, dst: int):
     """Streaming linear resampler for mono int16 chunks (speech only, so no fancy filter)."""
     import numpy as np
@@ -88,6 +106,15 @@ class Recorder:
         self._q: queue.Queue = queue.Queue()
         self._writer: threading.Thread | None = None
         self._proc: subprocess.Popen | None = None
+        self._mic_lock = threading.Lock()  # guards opening/closing the mic stream (watchdog vs. stop)
+        self._mic_stop = threading.Event()
+        self._mic_watcher: threading.Thread | None = None
+        self._mic_dev: int | None = None  # default input device the stream was opened on
+        self._mic_last = 0.0  # when the mic callback last ran
+        self._mic_written = 0  # samples written to mic.wav (at SR)
+        self._mic_resync = False  # stream was reopened: pad the gap with silence
+        self._mic_lost = False
+        self._mic_events: list[dict] = []  # device changes during the recording (wall clock)
         self.shot_count = 0
         self.mic_muted = False
         self.sys_muted = False
@@ -152,17 +179,41 @@ class Recorder:
         self._writer = threading.Thread(target=self._write_loop, daemon=True)
         self._writer.start()
 
+        self._mic_stop.clear()
+        self._mic_written = 0
+        self._mic_resync = False
+        self._mic_lost = False
+        self._mic_events = []
+        if self._open_mic():
+            self._mic_watcher = threading.Thread(target=self._watch_mic, daemon=True)
+            self._mic_watcher.start()
+
+    def _open_mic(self) -> bool:
+        """Open the default input at 16 kHz, or at its own rate with our own resampler. Warns and returns False on failure."""
+        import sounddevice as sd
+
         resampler = None
 
         def cb(indata, frames, time_info, status):
+            now = time.time()
+            self._mic_last = now
             if self.mic_first is None:
-                self.mic_first = time.time()
+                self.mic_first = now
             pcm = indata[:, 0] if resampler else indata  # fallback path may deliver several channels
             if resampler:
                 pcm = resampler(pcm)
+            if self._mic_resync:  # reopened after a device change: keep the file aligned with the clock
+                self._mic_resync = False
+                gap = int((now - self.mic_first) * SR) - self._mic_written - len(pcm)
+                if gap > 0:
+                    self._q.put(bytes(gap * 2))
+                    self._mic_written += gap
+            self._mic_written += len(pcm)
             # muted: keep the file running (so it stays aligned with the clock) but write silence
             self._q.put(bytes(pcm.nbytes) if self.mic_muted else bytes(pcm))
 
+        self._mic_dev = _default_input_id()
+        self._mic_last = time.time()
         try:
             try:
                 self._stream = sd.InputStream(samplerate=SR, channels=1, dtype="int16", callback=cb)
@@ -178,9 +229,62 @@ class Recorder:
                 resampler = _make_resampler(rate, SR)
                 self._stream = sd.InputStream(samplerate=rate, channels=1, dtype="int16", callback=cb)
                 self._stream.start()
+            return True
         except Exception as e:  # no mic permission / no device
             self.warn(f"microphone unavailable: {e}")
             self._stream = None
+            return False
+
+    def _drop_mic(self) -> None:
+        if self._stream is not None:
+            try:
+                self._stream.stop()
+                self._stream.close()
+            except Exception:
+                pass
+            self._stream = None
+
+    def _watch_mic(self) -> None:
+        """Follow the default microphone: reopen when it changes, vanishes or stops delivering audio.
+
+        The gap is filled with silence so mic.wav stays aligned with the clock and the system track."""
+        import sounddevice as sd
+
+        while not self._mic_stop.wait(1.0):
+            with self._mic_lock:
+                if self._mic_stop.is_set():
+                    return
+                cur = _default_input_id()
+                if self._stream is None:  # lost earlier: retry until a device is back
+                    reason = "retry"
+                elif cur is not None and self._mic_dev is not None and cur != self._mic_dev:
+                    reason = "changed"
+                elif not self._stream.active or time.time() - self._mic_last > 3:
+                    reason = "stalled"
+                else:
+                    continue
+                if reason != "retry":
+                    self._mic_events.append({"t": time.time(), "event": reason})  # changed / stalled
+                    self._drop_mic()
+                    if not self._mic_lost:
+                        self.warn("microphone changed or disconnected - reopening")
+                try:  # PortAudio only sees devices that existed when it was initialised
+                    sd._terminate()
+                    sd._initialize()
+                except Exception:
+                    pass
+                self._mic_resync = True
+                if self._open_mic():
+                    if self._mic_lost:
+                        self.warn("microphone is back")
+                    self._mic_lost = False
+                    try:
+                        name = sd.query_devices(kind="input")["name"]
+                    except Exception:
+                        name = None
+                    self._mic_events.append({"t": time.time(), "event": "reopened", "device": name})
+                else:
+                    self._mic_lost = True
 
     # ---- mute: the audio is replaced by silence at the source, so what was said is never saved
     def _send_helper(self, command: str) -> bool:
@@ -259,13 +363,12 @@ class Recorder:
 
     def _close(self) -> None:
         """Stop everything that may be running. Safe to call twice and after a partial start."""
-        if self._stream is not None:
-            try:
-                self._stream.stop()
-                self._stream.close()
-            except Exception:
-                pass
-            self._stream = None
+        self._mic_stop.set()
+        if self._mic_watcher is not None:
+            self._mic_watcher.join(timeout=10)
+            self._mic_watcher = None
+        with self._mic_lock:
+            self._drop_mic()
         if self._writer is not None:
             self._q.put(None)
             self._writer.join(timeout=5)
@@ -301,6 +404,11 @@ class Recorder:
                 "system_offset": round(self.sys_first - origin, 3) if self.sys_first else None,
                 **self._mute_meta(origin, end),
             }
+            if self._mic_events:  # seconds from the recording origin, like the mute spans
+                meta["mic_device_events"] = [
+                    {**{k: v for k, v in e.items() if k != "t"}, "at": round(max(e["t"] - origin, 0), 1)}
+                    for e in self._mic_events
+                ]
             (d / "meta.json").write_text(json.dumps(meta, indent=2))
         finally:
             self.dir = None
