@@ -99,7 +99,7 @@
       const kids = (st.children || []).map((c) =>
         '<div class="kid ' + c.state + '">' + (c.state === "done" ? CHECK_S : c.state === "now" ? '<span class="spin" style="width:11px;height:11px;border-width:2px"></span>' : '<span class="ring" style="width:11px;height:11px"></span>') +
         "<span>" + esc(c.label) + '</span><span class="r">' + esc(c.sub || "") + "</span></div>").join("");
-      return '<div class="step ' + st.state + '"><span class="ic">' + icon(st.state) + "</span><div>" + esc(st.label) + (st.sub ? "<small>" + esc(st.sub) + "</small>" : "") + "</div></div>" + kids;
+      return '<div class="step ' + st.state + '"><span class="ic">' + icon(st.state) + "</span><div>" + esc(st.label) + (st.sub ? "<small>" + esc(st.sub) + "</small>" : st.detail && st.state !== "done" ? "<small>" + esc(st.detail) + "</small>" : "") + "</div></div>" + kids;
     }).join("");
   }
 

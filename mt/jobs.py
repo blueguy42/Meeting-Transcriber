@@ -46,7 +46,7 @@ class Tracker:
         self._ids = itertools.count(1)
 
     # ---- worker side
-    def add(self, folder: Path, summarize: bool, transcribe: bool = True, recorded: bool = True) -> int:
+    def add(self, folder: Path, summarize: bool, transcribe: bool = True, recorded: bool = True, notes: int = 0, diarize: bool = False) -> int:
         steps = []
         if recorded:
             steps.append(_step("recorded", "Recorded", "done"))
@@ -54,9 +54,11 @@ class Tracker:
             steps.append(_step("transcribe", "Transcribing"))
         if summarize:
             steps.append(_step("summarize", "Summarizing"))
+            if notes:  # the summary will use the notes you took: say so under the step
+                steps[-1]["detail"] = f"with your notes ({notes} line{'s' if notes != 1 else ''})"
         steps.append(_step("save", "Saving files"))
         job = {"id": next(self._ids), "folder": str(folder), "name": display_name(folder.name), "state": "queued",
-               "steps": steps, "out": None, "error": "", "seen": False, "finished": 0.0}
+               "steps": steps, "diarize": bool(diarize and transcribe), "out": None, "error": "", "seen": False, "finished": 0.0}
         with self._lock:
             self._jobs.append(job)
         self.on_change()
@@ -94,6 +96,18 @@ class Tracker:
                             c["sub"] = ""
                     elif not seen_it:
                         c.update(state="done", sub="")
+            elif ev["kind"] in ("diarizing", "diarized"):
+                step = self._advance(job, "transcribe")
+                child = next((c for c in (step["children"] if step else []) if c["key"] == "diarize"), None)
+                if child is None:
+                    return
+                for c in step["children"]:  # speakers are told apart once both tracks are transcribed
+                    if c["key"] != "diarize":
+                        c.update(state="done", sub="")
+                if ev["kind"] == "diarized":
+                    child.update(state="done", fraction=1.0, sub="Skipped" if ev["failed"] else "")
+                else:
+                    child.update(state="now", fraction=ev["fraction"], sub=ev["note"] or f"{round(ev['fraction'] * 100)}%")
             elif ev["kind"] == "summarizing":
                 self._advance(job, "summarize")
             elif ev["kind"] == "docx":
@@ -163,6 +177,8 @@ class Tracker:
                          "sub": "" if i == 0 else "Waiting", "fraction": 0.0}
                         for i, label in enumerate(self.labels)
                     ]
+                    if job.get("diarize"):  # telling the other people apart is the last part of transcribing
+                        s["children"].append({"key": "diarize", "label": "Speakers", "state": "todo", "sub": "Waiting", "fraction": 0.0})
                 hit = s
                 break
             s.update(state="done", sub="")
@@ -187,7 +203,7 @@ class Tracker:
             elif s["state"] == "now":
                 if s["key"] == "transcribe":
                     # a recording has two tracks; a track that never shows up leaves the ring at half until summarizing starts
-                    part = min(1.0, sum(c.get("fraction", 0.0) if c["state"] != "done" else 1.0 for c in s["children"]) / 2)
+                    part = min(1.0, sum(c.get("fraction", 0.0) if c["state"] != "done" else 1.0 for c in s["children"]) / max(len(s["children"]), 1))
                 else:
                     part = 0.5
                 total += share * part

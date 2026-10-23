@@ -45,3 +45,8 @@
 # hotkey_screenshot = "<ctrl>+<alt>+s"
 # hotkey_mute_mic = "<ctrl>+<alt>+m"
 # hotkey_mute_system = "<ctrl>+<alt>+n"
+
+# Meeting notes (the notes button on the bar). Claude reads notes.txt together with the transcript when summarizing:
+# use_notes = true
+# hotkey_notes = "<ctrl>+<alt>+t"       # open / close the notes panel, from any app
+# hotkey_notes_time = "<cmd>+t"         # inside the notes panel: insert the recording time, e.g. [12:34]

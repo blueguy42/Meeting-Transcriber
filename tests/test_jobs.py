@@ -15,7 +15,13 @@ class ProgressMessages(unittest.TestCase):
         self.assertEqual(progress.parse(progress.transcribing("Others", bursts=14), labels)["fraction"], None)
         self.assertEqual(progress.parse(progress.SUMMARIZING, labels), {"kind": "summarizing"})
         self.assertEqual(progress.parse(progress.DOCX, labels), {"kind": "docx"})
-        self.assertIsNone(progress.parse("Found 2 Others speaker(s)", labels))
+        self.assertEqual(progress.parse(progress.diarizing(40), labels), {"kind": "diarizing", "fraction": 0.4, "note": ""})
+        self.assertEqual(progress.parse(progress.MATCHING_VOICES, labels)["note"], "Matching voices")
+        self.assertEqual(progress.parse(progress.downloading_model(2), labels)["note"], "Downloading model 2 of 2")
+        self.assertEqual(progress.parse(progress.speakers_found("Others", 2), labels), {"kind": "diarized", "failed": False})
+        self.assertEqual(progress.parse(progress.speakers_found("Others", 1), labels), {"kind": "diarized", "failed": False})
+        self.assertEqual(progress.parse(progress.SPEAKERS_FAILED + "no models", labels), {"kind": "diarized", "failed": True})
+        self.assertIsNone(progress.parse("Found 2 Nobody speaker(s)", labels))
         self.assertIsNone(progress.parse("Transcribing Nobody… 5%", labels))
 
 
@@ -71,9 +77,28 @@ class Flow(unittest.TestCase):
         self.t.acknowledge(self.id)
         self.assertEqual(self.t.snapshot(), [])
 
+    def test_telling_speakers_apart_is_a_part_of_transcribing(self):
+        t = Tracker(("Me", "Others"))
+        i = t.add(Path("/m/2026-10-20_1500"), summarize=True, diarize=True)
+        t.begin(i)
+        kids = lambda: t.snapshot()[0]["steps"][1]["children"]
+        self.assertEqual([c["label"] for c in kids()], ["Your mic", "System audio", "Speakers"])
+        t.feed(i, progress.transcribing("Me", 1.0))
+        t.feed(i, progress.transcribing("Others", 1.0))
+        t.feed(i, progress.diarizing(40))
+        self.assertEqual([(c["state"], c["sub"]) for c in kids()], [("done", ""), ("done", ""), ("now", "40%")])
+        p = t.snapshot()[0]["progress"]
+        t.feed(i, progress.speakers_found("Others", 3))
+        self.assertEqual(kids()[2]["state"], "done")
+        self.assertGreater(t.snapshot()[0]["progress"], p)
+        # off: no extra line
+        j = t.add(Path("/m/2026-10-20_1600"), summarize=True)
+        t.begin(j)  # (queued behind the first one, but begin() works on any job)
+        self.assertEqual(len(t.snapshot()[1]["steps"][1]["children"]), 2)
+
     def test_failure_and_unknown_messages(self):
         self.t.begin(self.id)
-        self.t.feed(self.id, "Found 3 Others speaker(s)")  # ignored
+        self.t.feed(self.id, "Something else entirely")  # ignored
         self.t.fail(self.id, "boom")
         j = self.job()
         self.assertEqual((j["state"], j["error"]), ("failed", "boom"))

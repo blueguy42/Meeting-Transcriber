@@ -173,6 +173,9 @@
       <div class="row"><label>Word document</label>
         <div><label class="check"><input type="checkbox" id="export_docx"> Also save each summary as a .docx</label>
         <div class="hint">For every summary, automatic or manual.</div></div></div>
+      <div class="row"><label>Meeting notes</label>
+        <div><label class="check"><input type="checkbox" id="use_notes"> Use my notes when summarizing</label>
+        <div class="hint">Notes you take during a meeting are saved as notes.txt in its folder and sent to Claude with the transcript.</div></div></div>
     </fieldset>
 
     <fieldset>
@@ -220,11 +223,19 @@
         <div><input type="text" class="keys" id="hotkey_record" readonly></div></div>
       <div class="row"><label>Take a screenshot</label>
         <div><input type="text" class="keys" id="hotkey_screenshot" readonly></div></div>
+      <div class="row"><label>Open meeting notes</label>
+        <div><input type="text" class="keys" id="hotkey_notes" readonly></div></div>
       <div class="row"><label>Mute microphone</label>
         <div><input type="text" class="keys" id="hotkey_mute_mic" readonly></div></div>
       <div class="row"><label>Mute system audio</label>
         <div><input type="text" class="keys" id="hotkey_mute_system" readonly>
         <div class="hint">They work in any app, and the mute shortcuts switch back and forth. Click a box, then press the combination (it needs Ctrl, Option, Shift or Command). Esc cancels.</div></div></div>
+    </fieldset>
+    <fieldset>
+      <legend>In the notes panel</legend>
+      <div class="row"><label>Insert the time</label>
+        <div><input type="text" class="keys" id="hotkey_notes_time" readonly>
+        <div class="hint">Puts the recording time ([12:34]) at the cursor, same as the Add time button. Only works while the notes panel is open.</div></div></div>
     </fieldset>
   </section>
 </main>
@@ -249,7 +260,7 @@
 const $ = (id) => document.getElementById(id);
 const FIELDS = ["language", "model", "compress_audio", "default_prompt", "my_label", "others_label",
                 "meetings_dir", "claude_path", "claude_model"];
-const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system", "diarize", "overlay_in_captures"];
+const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system", "diarize", "overlay_in_captures", "use_notes"];
 for (let n = 1; n <= 12; n++) $("diarize_speakers").add(new Option(n === 1 ? "1 other person" : n + " other people", String(n)));
 const syncDiarize = () => { $("diarize_speakers").disabled = !$("diarize").checked; };
 $("diarize").addEventListener("change", syncDiarize);
@@ -311,7 +322,7 @@ function keySpec(e) {
   const mods = [e.ctrlKey && "<ctrl>", e.altKey && "<alt>", e.shiftKey && "<shift>", e.metaKey && "<cmd>"].filter(Boolean);
   return mods.length ? [...mods, key].join("+") : null;
 }
-const HOTKEYS = ["hotkey_record", "hotkey_screenshot", "hotkey_mute_mic", "hotkey_mute_system"];
+const HOTKEYS = ["hotkey_record", "hotkey_screenshot", "hotkey_notes", "hotkey_mute_mic", "hotkey_mute_system", "hotkey_notes_time"];
 for (const id of HOTKEYS) {
   const el = $(id);
   el.addEventListener("focus", () => { el.classList.add("recording"); el.value = "Press keys…"; });

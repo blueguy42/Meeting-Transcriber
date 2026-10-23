@@ -23,6 +23,8 @@
   .btn.muted { background: rgba(255,69,58,.14); }
   .btn.muted.hov { background: rgba(255,69,58,.24); }
   .btn svg { display: block; }
+  .btn { position: relative; }
+  .ndot { position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%; background: #64a8ff; border: 2px solid #1e1f24; box-sizing: content-box; display: none; }
   .slash { display: none; }
   .muted .slash, .tab .slash { display: block; }
   .rec { position: relative; width: 48px; height: 48px; border-radius: 50%; border: 0; padding: 0; background: transparent;
@@ -70,14 +72,19 @@
   </button>
   <span class="timer" id="timer">Ready</span>
   <div class="div"></div>
-  <button class="btn off" id="shot" data-tip="shot" aria-label="Take screenshot">
-    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
-  </button>
   <button class="btn" id="mic" data-tip="mic" aria-label="Mute microphone">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/><path class="slash" d="M3.5 3.5l17 17" stroke="#ff453a" stroke-width="2.4"/></svg>
   </button>
   <button class="btn" id="sys" data-tip="sys" aria-label="Mute system audio">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/><path class="slash" d="M3.5 3.5l17 17" stroke="#ff453a" stroke-width="2.4"/></svg>
+  </button>
+  <div class="div"></div>
+  <button class="btn off" id="shot" data-tip="shot" aria-label="Take screenshot">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="3.5"/></svg>
+  </button>
+  <button class="btn off" id="notes" data-tip="notes" aria-label="Take notes">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h7M9 16h5"/></svg>
+    <span class="ndot" id="ndot"></span>
   </button>
   <button class="btn warn" id="perm" data-tip="perm" aria-label="Permissions needed" style="display:none">
     <svg id="perm-warn" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>
@@ -165,6 +172,10 @@
     $("more").classList.toggle("active", !!s.menuOpen);  // lit while its menu is open
     $("shot").classList.toggle("off", !rec);
     $("shot").setAttribute("aria-disabled", rec ? "false" : "true");
+    $("notes").classList.toggle("off", !rec);
+    $("notes").classList.toggle("active", !!s.notesOpen);  // lit while its panel is open
+    $("notes").setAttribute("aria-disabled", rec ? "false" : "true");
+    $("ndot").style.display = rec && s.notesLines > 0 ? "block" : "none";  // this meeting has notes
     for (const [id, muted, what] of [["mic", s.micMuted, "microphone"], ["sys", s.sysMuted, "system audio"]]) {
       $(id).classList.toggle("muted", !!muted);
       $(id).setAttribute("aria-label", (muted ? "Unmute " : "Mute ") + what);
@@ -200,6 +211,7 @@
     else post({ op: "toggle" });
   };
   $("shot").onclick = () => { hideTip(); if (state.recording) post({ op: "shot" }); };
+  $("notes").onclick = () => { hideTip(); if (state.recording) post({ op: "notes" }); };
   $("mic").onclick = () => { hideTip(); post({ op: "mute_mic" }); };
   $("sys").onclick = () => { hideTip(); post({ op: "mute_system" }); };
   $("perm").onclick = () => { hideTip(); post({ op: "perm" }); };

@@ -16,8 +16,39 @@ def transcribing(label: str, fraction: float | None = None, bursts: int | None =
     return f"Transcribing {label}… {fraction:.0%}"
 
 
+def diarizing(percent: int) -> str:
+    return f"Telling speakers apart… {percent}%"
+
+
+MATCHING_VOICES = "Telling speakers apart… matching voices"
+
+
+def downloading_model(n: int) -> str:
+    return f"Downloading speaker model {n} of 2…"
+
+
+def speakers_found(label: str, count: int) -> str:
+    return f"Found {count} {label} speaker(s)" if count > 1 else f"{label}: one speaker"
+
+
+SPEAKERS_FAILED = "Speakers were not told apart: "  # followed by the reason
+
+
 def parse(msg: str, labels: list[str]) -> dict | None:
-    """-> {"kind": "transcribing", "label": ..., "fraction": 0..1 | None}, {"kind": "summarizing"}, {"kind": "docx"} or None."""
+    """-> {"kind": "transcribing", "label": ..., "fraction": 0..1 | None}, {"kind": "summarizing"}, {"kind": "docx"},
+    {"kind": "diarizing", "fraction": 0..1 | None, "note": str}, {"kind": "diarized", "failed": bool} or None."""
+    if msg.startswith(SPEAKERS_FAILED):
+        return {"kind": "diarized", "failed": True}
+    m = re.fullmatch(r"Telling speakers apart… (\d+)%", msg)
+    if m:
+        return {"kind": "diarizing", "fraction": int(m.group(1)) / 100, "note": ""}
+    if msg == MATCHING_VOICES:
+        return {"kind": "diarizing", "fraction": 0.99, "note": "Matching voices"}
+    m = re.fullmatch(r"Downloading speaker model (\d) of 2…", msg)
+    if m:
+        return {"kind": "diarizing", "fraction": 0.0, "note": f"Downloading model {m.group(1)} of 2"}
+    if len(labels) > 1 and (re.fullmatch(rf"Found \d+ {re.escape(labels[1])} speaker\(s\)", msg) or msg == f"{labels[1]}: one speaker"):
+        return {"kind": "diarized", "failed": False}
     if msg == SUMMARIZING:
         return {"kind": "summarizing"}
     if msg == DOCX:

@@ -13,13 +13,14 @@ from pathlib import Path
 
 from PyObjCTools import AppHelper
 
-from . import config, permissions
+from . import config, notes, permissions
 from .flash import flash_screen
 from .hotkeys import Hotkeys
 from .jobs import Tracker
 from .audio import has_audio
 from .pipeline import process, summarize_existing, transcribe_existing
 from .recorder import Recorder
+from .summarize import notes_lines
 from .transcribe import transcript_file
 
 def on_main(fn, *args):
@@ -110,6 +111,8 @@ class App:
         except OSError as e:
             self._hotkeys = None
             notify("Meeting Transcriber", "Global hotkeys are off", str(e)[:150])
+        self._notes_text = ""  # what is in the notes panel for the current (or last) recording
+        self._notes_dir: Path | None = None  # ...and the meeting folder it is saved in (kept after stopping, for the last keystrokes)
         self._settings = None  # the Settings window, created on first use
         self._overlay = None  # the floating control bar, created once the app is running
         self._awaiting_restart = False  # you were sent to System Settings: macOS only applies Screen Recording after a restart
@@ -235,6 +238,7 @@ class App:
         return {
             "recording": self.rec.recording,
             "elapsed": int(time.time() - self.started) if self.rec.recording else 0,
+            "notesLines": notes.line_count(self._notes_text) if self.rec.recording else 0,
             "micMuted": bool(self.rec.mic_muted),
             "sysMuted": bool(self.rec.sys_muted),
             "busy": self.jobs.busy,
@@ -260,7 +264,7 @@ class App:
                 self.quit(None)
 
     def overlay_action(self, op):
-        {"toggle": self.toggle, "shot": self.shot, "mute_mic": self.toggle_mic, "mute_system": self.toggle_system, "perm": self.fix_permissions, "quit": self.confirm_quit}[op](None)
+        {"toggle": self.toggle, "shot": self.shot, "notes": self.toggle_notes, "mute_mic": self.toggle_mic, "mute_system": self.toggle_system, "perm": self.fix_permissions, "quit": self.confirm_quit}[op](None)
         self._push_overlay()
 
     def overlay_tip(self, tip_id):
@@ -271,6 +275,9 @@ class App:
                     "hotkey": None if busy else fmt_hotkey(cfg["hotkey_record"])},
             "shot": {"text": "Take screenshot" if rec.recording else "Take screenshot (while recording)",
                      "hotkey": fmt_hotkey(cfg["hotkey_screenshot"]) if rec.recording else None},
+            "notes": {"text": "Take notes (while recording)" if not rec.recording
+                      else f"Notes · {n} line{'s' if n != 1 else ''}" if (n := notes.line_count(self._notes_text)) else "Take notes",
+                      "hotkey": fmt_hotkey(cfg["hotkey_notes"]) if rec.recording else None},
             "mic": {"text": "Unmute microphone" if rec.mic_muted else "Mute microphone", "hotkey": fmt_hotkey(cfg["hotkey_mute_mic"])},
             "sys": {"text": "Unmute system audio" if rec.sys_muted else "Mute system audio", "hotkey": fmt_hotkey(cfg["hotkey_mute_system"])},
             "perm": {"text": "Restart to apply the permission", "hotkey": None} if self._restart_pending()
@@ -280,6 +287,21 @@ class App:
             "quit": {"text": "Quit", "hotkey": None},
             "tab": {"text": "Show bar", "hotkey": None},
         }.get(tip_id)
+
+    def overlay_notes_info(self) -> dict:
+        return {"timeKey": self.cfg["hotkey_notes_time"], "timeLabel": fmt_hotkey(self.cfg["hotkey_notes_time"])}
+
+    def overlay_notes_save(self, text: str) -> str | None:
+        """The notes panel sends everything typed so far; it goes to notes.txt in the meeting's folder."""
+        self._notes_text = text[:notes.MAX_CHARS]
+        d = self._notes_dir
+        if d is None or not d.exists():
+            return None
+        try:
+            notes.save_notes(d, self._notes_text)
+        except OSError as e:
+            return f"Couldn't save: {str(e)[:60]}"
+        return None
 
     def overlay_menu(self):
         styles = [{"id": f"style:{n}", "label": n, "checked": n == self.cfg["default_prompt"]} for n in config.list_prompts()]
@@ -336,6 +358,7 @@ class App:
         problems = self._hotkeys.set(
             {
                 self.cfg["hotkey_screenshot"]: lambda: self.shot(None),
+                self.cfg["hotkey_notes"]: lambda: self.toggle_notes(None),
                 self.cfg["hotkey_record"]: lambda: self.toggle(None),
                 self.cfg["hotkey_mute_mic"]: lambda: self.toggle_mic(None),
                 self.cfg["hotkey_mute_system"]: lambda: self.toggle_system(None),
@@ -357,9 +380,14 @@ class App:
                            "Allow Screen & System Audio Recording in System Settings, then reopen the app.")
                 self.rec.cfg = self._reload_cfg()  # pick up edits to config.toml
                 self.rec.start()
+                self._notes_text, self._notes_dir = "", self.rec.dir  # a fresh notes panel for this meeting
+                if self._overlay is not None:
+                    self._overlay.reset_notes()
                 self.started = time.time()
                 self._status("Recording…")
             else:
+                if self._overlay is not None:
+                    self._overlay.close_notes()  # saves the last keystrokes (notes.txt is read when the summary is written)
                 d = self.rec.stop()
                 self._run_pipeline(d)
         except Exception as e:
@@ -391,6 +419,12 @@ class App:
             self._status(f"Screenshots: {self.rec.shot_count}")
         except Exception as e:
             notify("Meeting Transcriber", "Screenshot failed", str(e))
+
+    def toggle_notes(self, _):
+        if not self.rec.recording or self._overlay is None:
+            return
+        self._overlay.toggle_notes()
+        self._push_overlay()
 
     def _choose_meeting(self, message: str, button: str) -> Path | None:
         """Ask for a meeting folder (a folder picker starting in the meetings folder)."""
@@ -439,6 +473,8 @@ class App:
             summarize=bool(cfg0["auto_summarize"] or summarize_only),  # (transcribing a meeting follows the auto-summarize setting)
             transcribe=not (summarize_only and transcript_file(d).exists()),
             recorded=not (summarize_only or transcribe_only),  # an existing meeting: no "Recorded" step
+            diarize=bool(cfg0["diarize"]),  # "Telling speakers apart" is a part of Transcribing
+            notes=notes_lines(d, cfg0),  # the summary also reads the notes you took (shown under "Summarizing")
         )
         on_main(self._open_status)
 
@@ -512,7 +548,14 @@ class App:
 
     def quit(self, _):
         if self.rec.recording:
+            if self._overlay is not None:
+                self._overlay.close_notes()  # the notes panel saves what is still unsaved...
             self.rec.stop()
+            AppHelper.callLater(0.4, self._terminate)  # ...a moment later, when that has arrived
+            return
+        self._terminate()
+
+    def _terminate(self):
         from AppKit import NSApp
 
         NSApp.terminate_(None)
@@ -536,6 +579,9 @@ def _stay_responsive():
 
 def main():
     _hide_dock_icon()
+    from .settings_window import install_edit_menu
+
+    install_edit_menu()  # no menu bar: without a main menu Cmd+A / C / V / Z would not work in the notes panel or Settings
     _stay_responsive()
     app = App()  # keep a reference: the timers and the bar call back into it
     AppHelper.runEventLoop()

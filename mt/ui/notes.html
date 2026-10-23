@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<style>
+  html, body { margin: 0; background: transparent; overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default;
+    font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: #ececf0; }
+  /* like popup.html: the card draws its own shadow, this padding leaves room for it (overlay.py allows for it) */
+  #wrap { display: inline-block; padding: 14px; }
+  .card { position: relative; box-sizing: border-box; width: 320px; padding: 12px 14px; background: #2a2b31; border: 1px solid rgba(255,255,255,.14);
+    border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+  .head { display: flex; align-items: center; justify-content: space-between; margin: -2px -5px 6px 0; }  /* the close icon's right edge lines up with the text box's */
+  .side-right .head { margin-left: 12px; }  /* leaves room for the grip in the top-left corner */
+  /* resize grip in the top corner away from the bar; dragging it up and outwards makes the panel bigger */
+  #grip { position: absolute; top: 0; width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; color: #6f7079; cursor: nwse-resize; touch-action: none; }
+  #grip:hover, #grip.on { color: #c9cad2; }
+  /* the whole top edge and the whole outer side edge also resize (the grip is the corner where they meet) */
+  .edge { position: absolute; touch-action: none; z-index: 1; }
+  .edge.top { top: 0; left: 0; right: 0; height: 7px; cursor: ns-resize; }
+  .edge.side { top: 0; bottom: 0; width: 7px; cursor: ew-resize; }
+  .side-right .edge.side { left: 0; }
+  .side-left .edge.side { right: 0; }
+  #grip { z-index: 2; }
+  /* while resizing, the text box must not react to the pointer passing over it (no selecting) */
+  body.resizing, body.resizing * { -webkit-user-select: none !important; user-select: none !important; cursor: inherit; }
+  body.resizing #ed { pointer-events: none; }
+  .side-right #grip { left: 2px; }
+  .side-left #grip { right: 2px; cursor: nesw-resize; }
+  .side-left #grip svg { transform: scaleX(-1); }
+  .head b { font-size: 13px; font-weight: 600; }
+  .x { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #a9aab4;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .x:hover { background: rgba(255,255,255,.12); color: #fff; }
+  #ed { box-sizing: border-box; height: 190px; overflow-y: auto; border-radius: 8px; background: #1e1f24; border: 1px solid rgba(255,255,255,.12);
+    padding: 10px 11px; font-size: 13px; line-height: 1.5; color: #ececf0; white-space: pre-wrap; word-wrap: break-word;
+    -webkit-user-select: text; user-select: text; cursor: text; outline: none; caret-color: #64a8ff; }
+  #ed:focus { border-color: rgba(100,168,255,.55); }
+  #ed:empty::before { content: attr(data-ph); color: #8d8e98; pointer-events: none; }
+  /* a time is one piece (Backspace removes it together with the space after it) */
+  .ts { white-space: pre; -webkit-user-select: all; user-select: all; }
+  .ts .tv { color: #9dc0ff; background: rgba(100,168,255,.18); border-radius: 5px; padding: 0 5px; font-variant-numeric: tabular-nums; }
+  .foot { display: flex; align-items: center; justify-content: space-between; margin-top: 9px; font-size: 12px; color: #a9aab4; }
+  #saved { display: flex; align-items: center; gap: 6px; color: #7be495; }
+  #saved.pending { color: #a9aab4; }
+  #saved.fail { color: #ff8a80; }
+  .chip { padding: 4px 10px; border: 0; border-radius: 7px; background: rgba(255,255,255,.14); color: #fff; font: inherit; font-size: 12px; cursor: pointer; white-space: nowrap; }
+  .chip:hover { background: rgba(255,255,255,.22); }
+  .chip span { opacity: .6; margin-left: 6px; }
+  button, button:focus, button:focus-visible { outline: none; }
+</style>
+</head>
+<body>
+<div id="wrap"><div class="card" id="card">
+  <div class="edge top" id="edgeTop"></div><div class="edge side" id="edgeSide"></div>
+  <div id="grip" aria-label="Resize the notes" title="Drag to resize"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M1 9L9 1M1 5.5L5.5 1"/></svg></div>
+  <div class="head"><div><b>Meeting notes</b></div>
+    <button class="x" id="close" aria-label="Close notes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div id="ed" contenteditable="true" spellcheck="false" autocorrect="off" autocapitalize="off" role="textbox" aria-multiline="true" aria-label="Meeting notes"
+       data-ph="Type anything worth remembering. Plain text, saved as you type.&#10;&#10;Claude reads your notes together with the transcript, so mark what matters: decisions, names, numbers."></div>
+  <div class="foot"><span id="saved"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span id="savedText">Saved</span></span>
+    <button class="chip" id="addtime">Add time<span id="timeLabel">⌘T</span></button></div>
+</div></div>
+<script>
+  const $ = (id) => document.getElementById(id);
+  const ed = $("ed");
+  const TIME = /\[(?:\d+:)?\d{1,2}:\d{2}\] ?/g;  // a time, with the space after it
+  const SAVE_AFTER = 1000;  // ms of typing inactivity before the notes are saved (closing the panel or stopping saves at once)
+  let elapsed = 0, elapsedAt = Date.now(), timeKey = "<cmd>+t", timer = null, lastSize = "";
+
+  function post(msg) { window.webkit.messageHandlers.bridge.postMessage(JSON.stringify(msg)); }
+
+  // ---- the notes as plain text: a timestamp chip is written out as [12:34], a line break as a newline
+  function textOf() {
+    let out = "";
+    (function walk(n) {
+      for (const c of n.childNodes) {
+        if (c.nodeType === 3) out += c.data.replace(/ /g, " ");
+        else if (c.classList && c.classList.contains("ts")) out += c.dataset.t;
+        else if (c.nodeName === "BR") out += "\n";
+        else { const block = /^(DIV|P)$/.test(c.nodeName) && out && !out.endsWith("\n"); if (block) out += "\n"; walk(c); }
+      }
+    })(ed);
+    if (ed.lastChild && ed.lastChild.nodeName === "BR") out = out.slice(0, -1);  // the browser's placeholder break at the end
+    return out;
+  }
+
+  function chip(t) {  // t is "[12:34]"
+    const s = document.createElement("span");
+    s.className = "ts"; s.contentEditable = "false"; s.dataset.t = t;
+    const v = document.createElement("span");
+    v.className = "tv"; v.textContent = t;
+    s.append(v);
+    return s;
+  }
+  function fill(text) {  // plain text -> editor, times become chips again
+    ed.textContent = "";
+    let last = 0, m;
+    TIME.lastIndex = 0;
+    while ((m = TIME.exec(text))) {
+      if (m.index > last) ed.append(text.slice(last, m.index));
+      ed.append(chip(m[0].trim()));
+      if (m[0].endsWith(" ")) ed.append(" ");
+      last = m.index + m[0].length;
+    }
+    if (last < text.length) ed.append(text.slice(last));
+  }
+
+  // ---- saving: a moment after you stop typing, and straight away when asked (flush)
+  function setSaved(kind, text) { const s = $("saved"); s.className = kind; $("savedText").textContent = text; }
+  function flush() {
+    clearTimeout(timer); timer = null;
+    post({ op: "notes_save", text: textOf() });
+    setSaved("", "Saved");
+  }
+  function changed() {
+    if (!ed.textContent.trim() && !ed.querySelector(".ts") && ed.innerHTML !== "") ed.innerHTML = "";  // so the placeholder comes back
+    setSaved("pending", "Not saved yet");
+    clearTimeout(timer); timer = setTimeout(flush, SAVE_AFTER);
+    keepCaretVisible();
+  }
+
+  function setCaret(node, off) {  // put the caret somewhere and make sure it is drawn (it can vanish after a removal)
+    const r = document.createRange(); r.setStart(node, off); r.collapse(true);
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+    ed.focus();
+  }
+  function caretBox() {  // where the caret is, even on an empty line
+    const sel = getSelection();
+    if (!sel.rangeCount || !ed.contains(sel.anchorNode)) return null;
+    const r = sel.getRangeAt(0).cloneRange(); r.collapse(false);
+    let q = r.getClientRects()[0];
+    if (q && q.height > 0) return q;
+    let el = sel.anchorNode.nodeType === 3 ? sel.anchorNode.parentElement : sel.anchorNode;
+    if (el === ed && sel.anchorNode.childNodes[sel.anchorOffset]) el = sel.anchorNode.childNodes[sel.anchorOffset];
+    if (el && el.nodeType === 1 && el !== ed) return el.getBoundingClientRect();
+    return null;
+  }
+  // After Enter the browser scrolls the new line to the middle of the box. If the caret had to be scrolled into view from
+  // below, it belongs at the bottom edge instead.
+  let scrollBefore = 0;
+  ed.addEventListener("beforeinput", () => { scrollBefore = ed.scrollTop; });
+  function caretToBottom() {
+    const q = caretBox(), box = ed.getBoundingClientRect(), pad = 10;
+    if (!q) return;
+    const bottomInContent = q.bottom - box.top + ed.scrollTop;  // the caret's bottom, measured from the top of the content
+    if (bottomInContent > scrollBefore + ed.clientHeight - pad / 2) ed.scrollTop = Math.max(0, bottomInContent - ed.clientHeight + pad);  // it was below the visible part
+  }
+  ed.addEventListener("input", (e) => {
+    if (e.inputType === "insertParagraph" || e.inputType === "insertLineBreak") {
+      caretToBottom();
+      requestAnimationFrame(caretToBottom);  // the browser's own scroll can land a moment later
+      setTimeout(caretToBottom, 60);
+    }
+  });
+
+  // a new line below the visible part must scroll the box so the caret stays in view
+  function keepCaretVisible() {
+    const sel = getSelection();
+    if (!sel.rangeCount || !ed.contains(sel.anchorNode)) return;
+    const r = sel.getRangeAt(0).cloneRange();
+    r.collapse(false);
+    let rect = r.getClientRects()[0];
+    if (!rect || (rect.height === 0 && rect.top === 0)) {  // an empty line has no box of its own: use the end of the text
+      const end = ed.getBoundingClientRect();
+      if (ed.scrollHeight - ed.scrollTop - ed.clientHeight < 40) ed.scrollTop = ed.scrollHeight;
+      return;
+    }
+    const box = ed.getBoundingClientRect(), pad = 10;
+    if (rect.bottom > box.bottom - pad) ed.scrollTop += rect.bottom - box.bottom + pad;
+    else if (rect.top < box.top + pad) ed.scrollTop -= box.top + pad - rect.top;
+  }
+  ed.addEventListener("input", changed);
+
+  // ---- Add time: the recording time at the cursor, as one piece
+  function nowSeconds() { return elapsed + (Date.now() - elapsedAt) / 1000; }
+  function stamp(sec) {
+    const s = Math.max(0, Math.floor(sec)), h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+    const two = (n) => String(n).padStart(2, "0");
+    return "[" + (h ? h + ":" + two(m) : two(m)) + ":" + two(r) + "]";
+  }
+  function addTime() {
+    ed.focus();
+    const t = stamp(nowSeconds());
+    document.execCommand("insertHTML", false, '<span class="ts" contenteditable="false" data-t="' + t + '"><span class="tv">' + t + "</span></span>&nbsp;");
+    changed();
+  }
+  $("addtime").addEventListener("mousedown", (e) => e.preventDefault());  // keep the cursor in the text
+  $("addtime").addEventListener("click", addTime);
+
+  // ---- a timestamp is removed whole by Backspace or Delete
+  // the space that goes with a time (the one Add time puts after it) is removed with it
+  function isSpace(c) { return c === " " || c === "\u00a0"; }
+  function timeAndSpace(back) {
+    const sel = getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed || sel.anchorNode.nodeType !== 3) return null;
+    const node = sel.anchorNode, off = sel.anchorOffset;
+    if (back) {  // caret just after "[12:34]" + space
+      const p = node.previousSibling;
+      return off === 1 && isSpace(node.data[0]) && p && p.classList && p.classList.contains("ts") ? { chip: p, node } : null;
+    }
+    const n = node.nextSibling;  // caret just before a time, which has a space after it
+    if (off === node.data.length && n && n.classList && n.classList.contains("ts") && n.nextSibling && n.nextSibling.nodeType === 3 && isSpace(n.nextSibling.data[0])) return { chip: n, node: n.nextSibling };
+    return null;
+  }
+  function neighbour(back) {
+    const sel = getSelection();
+    if (!sel.rangeCount || !sel.isCollapsed) return null;
+    let node = sel.anchorNode, off = sel.anchorOffset;
+    if (node.nodeType === 3) {
+      if (back ? off > 0 : off < node.data.length) return null;
+      node = back ? node.previousSibling : node.nextSibling;
+    } else {
+      node = node.childNodes[back ? off - 1 : off] || null;
+    }
+    return node && node.classList && node.classList.contains("ts") ? node : null;
+  }
+
+  function matches(e, spec) {  // "<cmd>+t" against a key event (physical key, like the global shortcuts)
+    const parts = spec.split("+"), key = parts.pop();
+    const want = new Set(parts.map((p) => p.replace(/[<>]/g, "")));
+    const have = [e.ctrlKey && "ctrl", e.altKey && "alt", e.shiftKey && "shift", e.metaKey && "cmd"].filter(Boolean);
+    if (have.length !== want.size || !have.every((m) => want.has(m))) return false;
+    const code = /^<f\d+>$/.test(key) ? key.slice(1, -1).toUpperCase() : /^\d$/.test(key) ? "Digit" + key : "Key" + key.toUpperCase();
+    return e.code === code;
+  }
+
+  ed.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") { e.preventDefault(); flush(); post({ op: "notes_close" }); return; }
+    if (matches(e, timeKey)) { e.preventDefault(); addTime(); return; }
+    if ((e.metaKey || e.ctrlKey) && /^[biu]$/i.test(e.key)) { e.preventDefault(); return; }  // plain text only
+    if ((e.key === "Backspace" || e.key === "Delete") && !e.metaKey && !e.altKey && !e.ctrlKey) {
+      const back = e.key === "Backspace";
+      const both = timeAndSpace(back);
+      if (both) {
+        e.preventDefault();
+        both.chip.remove(); both.node.deleteData(0, 1);
+        setCaret(both.node, 0);
+        changed(); return;
+      }
+      const n = neighbour(back);
+      if (n) {
+        e.preventDefault();
+        const parent = n.parentNode, at = Array.prototype.indexOf.call(parent.childNodes, n);
+        n.remove();
+        setCaret(parent, at);
+        changed();
+      }
+    }
+  });
+
+  // plain text only, whatever is pasted or dropped
+  ed.addEventListener("paste", (e) => {
+    e.preventDefault();
+    document.execCommand("insertText", false, (e.clipboardData.getData("text/plain") || "").replace(/\r\n?/g, "\n"));
+  });
+  ed.addEventListener("dragover", (e) => e.preventDefault());
+  ed.addEventListener("drop", (e) => {
+    e.preventDefault();
+    const t = e.dataTransfer.getData("text/plain");
+    if (t) document.execCommand("insertText", false, t);
+  });
+
+  $("close").addEventListener("click", () => { flush(); post({ op: "notes_close" }); });
+
+  // ---- size: the panel can be dragged bigger (Python decides how big, see Overlay._on_notes)
+  const card = $("card");
+  let chrome = null;  // the card's height apart from the text box
+  function natural() { return { cw: 320, ch: 190 + chrome }; }
+  window.__setSize = function (cw, ch) {
+    card.style.width = cw + "px";
+    ed.style.height = Math.max(120, ch - chrome) + "px";
+    keepCaretVisible();
+  };
+  let rs = null;
+  // grip: both directions; top edge: height only; side edge: width only
+  for (const [id, mx, my] of [["grip", 1, 1], ["edgeTop", 0, 1], ["edgeSide", 1, 0]]) {
+    const el = $(id);
+    el.addEventListener("pointerdown", (e) => {
+      e.preventDefault();  // no text selection starts from here
+      rs = { x: e.screenX, y: e.screenY, mx, my, el };
+      el.setPointerCapture(e.pointerId);
+      document.body.classList.add("resizing");
+      getSelection().removeAllRanges();
+      post({ op: "notes_resize", phase: "start" });
+    });
+    el.addEventListener("pointermove", (e) => {
+      if (rs && rs.el === el) post({ op: "notes_resize", phase: "move", dx: (e.screenX - rs.x) * mx, dy: (e.screenY - rs.y) * my });
+    });
+    const end = () => { if (!rs || rs.el !== el) return; rs = null; document.body.classList.remove("resizing"); post({ op: "notes_resize", phase: "end" }); };
+    el.addEventListener("pointerup", end);
+    el.addEventListener("pointercancel", end);
+  }
+  document.addEventListener("selectstart", (e) => { if (rs) e.preventDefault(); });
+
+  // ---- what Python tells this page
+  window.render = function (s) {
+    if (s.side) document.body.className = "side-" + s.side;
+    if (s.size) window.__setSize(s.size.cw, s.size.ch);
+    if (s.reset) { ed.innerHTML = ""; setSaved("", "Saved"); }
+    if (typeof s.text === "string") fill(s.text);
+    if (s.timeKey) timeKey = s.timeKey;
+    if (s.timeLabel) $("timeLabel").textContent = s.timeLabel;
+    if ("elapsed" in s) window.__elapsed(s.elapsed);
+    report();
+  };
+  window.__elapsed = function (sec) { elapsed = sec; elapsedAt = Date.now(); };
+  window.__focus = function () {
+    ed.focus();
+    const r = document.createRange(); r.selectNodeContents(ed); r.collapse(false);  // the end: where you left off
+    const sel = getSelection(); sel.removeAllRanges(); sel.addRange(r);
+  };
+  window.__failed = function (msg) { setSaved("fail", msg || "Couldn't save"); };
+  window.flush = flush;
+
+  // Python needs to know the smallest the panel can be (its natural size); it never gets smaller than this
+  function report() {
+    if (chrome === null) chrome = card.offsetHeight - ed.offsetHeight;
+    const n = natural(), w = n.cw + 28, h = n.ch + 28;  // 14px of transparent border all round (room for the shadow)
+    const size = w + "x" + h;
+    if (size !== lastSize) { lastSize = size; post({ op: "size", w, h }); }
+  }
+  post({ op: "ready" });
+  report();
+</script>
+</body>
+</html>

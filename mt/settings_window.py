@@ -54,7 +54,7 @@ def install_edit_menu() -> None:
     main.addItem_(edit_item)
     edit = NSMenu.alloc().initWithTitle_("Edit")
     for title, action, key in (
-        ("Undo", "undo:", "z"), ("Cut", "cut:", "x"), ("Copy", "copy:", "c"),
+        ("Undo", "undo:", "z"), ("Redo", "redo:", "Z"), ("Cut", "cut:", "x"), ("Copy", "copy:", "c"),
         ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a"), ("Close Window", "performClose:", "w"),
     ):
         edit.addItemWithTitle_action_keyEquivalent_(title, action, key)

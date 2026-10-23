@@ -34,6 +34,11 @@ DEFAULTS = {
     "start_muted_system": False,
     "hotkey_mute_mic": "<ctrl>+<alt>+m",
     "hotkey_mute_system": "<ctrl>+<alt>+n",
+    # Meeting notes: the shortcut that opens/closes the notes panel (works in any app), the one that inserts the
+    # recording time while typing in it, and whether Claude reads your notes when summarizing.
+    "hotkey_notes": "<ctrl>+<alt>+t",
+    "hotkey_notes_time": "<cmd>+t",
+    "use_notes": True,
     # Screenshot size as a percentage of the captured screen's real pixel width (100 = full size).
     "screenshot_scale": 50,
     "auto_summarize": True,

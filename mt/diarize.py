@@ -16,6 +16,7 @@ from pathlib import Path
 import numpy as np
 
 from . import config
+from .progress import MATCHING_VOICES, diarizing, downloading_model
 
 SR = 16000
 SEG_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"
@@ -57,7 +58,7 @@ def ensure_models(progress=lambda msg: None) -> tuple[Path, Path]:
     d.mkdir(parents=True, exist_ok=True)
     seg, emb = d / SEG_FILE, d / EMB_FILE
     if not seg.exists():
-        progress("Downloading speaker model 1 of 2…")
+        progress(downloading_model(1))
         with tempfile.TemporaryDirectory() as t:
             archive = Path(t) / "seg.tar.bz2"
             _download(SEG_URL, archive)
@@ -69,7 +70,7 @@ def ensure_models(progress=lambda msg: None) -> tuple[Path, Path]:
                     shutil.copyfileobj(src, out)
             seg.with_suffix(".part").replace(seg)
     if not emb.exists() or emb.stat().st_size != EMB_BYTES:
-        progress("Downloading speaker model 2 of 2…")
+        progress(downloading_model(2))
         _download(EMB_URL, emb)
         if emb.stat().st_size != EMB_BYTES:
             emb.unlink(missing_ok=True)
@@ -174,12 +175,12 @@ def diarize(audio: np.ndarray, speakers: int = 0, progress=lambda msg: None) -> 
         percent = int(100 * done / max(total, 1))
         if percent != shown[0]:  # the engine reports every chunk; the menu only needs each percent once
             shown[0] = percent
-            progress(f"Telling speakers apart… {percent}%")
+            progress(diarizing(percent))
         return 0
 
     turns = [(r.start, r.end, r.speaker) for r in engine.process(audio, callback=tick).sort_by_start_time()]
     if not turns:
         return []
-    progress("Telling speakers apart… matching voices")
+    progress(MATCHING_VOICES)
     mapping = merge_groups(_voiceprints(audio, turns, extractor), speakers)
     return [(a, b, mapping[g]) for a, b, g in turns if g in mapping]

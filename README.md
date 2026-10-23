@@ -2,9 +2,10 @@
 
 **A small floating bar for your Mac that listens to your meetings and writes the notes for you.**
 
-Start recording with a shortcut, and grab a screenshot of a slide with another. When you stop, the app
-turns the conversation into a written transcript (Indonesian and English) and asks Claude to write a tidy
-summary with the decisions and action items. You get a Word document and a text file, ready to share.
+Start recording with a shortcut, grab a screenshot of a slide with another, and jot down notes as you go.
+When you stop, the app turns the conversation into a written transcript (Indonesian and English) and asks Claude
+to write a tidy summary with the decisions and action items, including the things you noted. You get a Word
+document and a text file, ready to share.
 
 <p align="center">
   <img src="docs/screenshots/bar-states.png" alt="The floating bar: idle, recording, muted and the More menu" width="900">
@@ -17,8 +18,8 @@ summary with the decisions and action items. You get a Word document and a text 
 | **Summaries** | Written by Claude, using your Claude subscription. No API key needed |
 | **Cost** | Free app. Summaries use your existing Claude plan |
 
-> **Privacy:** to write the summary, the *transcript* and the *screenshots you took* are sent to Claude
-> (Anthropic). Audio is never uploaded. If you turn off *Summarize automatically with Claude* in Settings,
+> **Privacy:** to write the summary, the *transcript*, the *screenshots you took* and *your notes* are sent to
+> Claude (Anthropic). Audio is never uploaded. If you turn off *Summarize automatically with Claude* in Settings,
 > nothing is sent anywhere until you choose to summarize a meeting yourself.
 > Please tell the people in your meeting that you are recording.
 
@@ -44,14 +45,15 @@ After every meeting, the app creates a folder containing:
 - a **summary** (Word document and Markdown file) with the key decisions and action items,
 - the **full transcript**, with timestamps and who said what ("Me" or "Others", or "Others 1", "Others 2"…),
 - the **screenshots** you took. Claude picks the useful ones (slides, charts, documents) and places them
-  in the right spot in the summary.
+  in the right spot in the summary,
+- the **notes you typed** during the meeting (`notes.txt`), which Claude also reads when writing the summary.
 
 ```
 record  ──▶  transcribe (on your Mac)  ──▶  summarize (Claude)  ──▶  Word + Markdown summary
  your mic     "Me" / "Others"                picks the useful          folder renamed with
- + the other  with timestamps                screenshots; you pick     the meeting title
- side's audio                                the summary style
- + screenshots
+ + the other  with timestamps                screenshots and covers    the meeting title
+ side's audio                                your notes; you pick
+ + screenshots + notes                       the summary style
 ```
 
 ---
@@ -63,12 +65,12 @@ record  ──▶  transcribe (on your Mac)  ──▶  summarize (Claude)  ─�
 - **Claude Code** (the app or the command-line tool), signed in to your Claude account. This is only needed for
   summaries; without it you can still record and transcribe. If you have the Claude desktop app, Meeting
   Transcriber finds the copy bundled with it automatically.
-- **Apple's command line tools**: run `xcode-select --install` once.
+- **Apple's command line tools** (a free developer add-on from Apple that the installer needs): open Terminal (press ⌘ Space, type "Terminal", press Return) and run `xcode-select --install` once.
 - **Python 3.11 or newer.**
 - About **3 GB of free space** for the speech model (downloaded on first use) plus room for your recordings.
 
 ### Install
-Open Terminal in this folder and run:
+Open Terminal in this project folder (in Finder, right-click the folder → *New Terminal at Folder*) and run:
 
 ```bash
 ./build_app.sh
@@ -115,16 +117,21 @@ Everything is controlled from a small bar on the edge of your screen. Hover any 
 | I want to… | Do this |
 |---|---|
 | Start or stop a recording | Click the record button, or press **Ctrl + Option + R**. Stopping also processes the meeting |
-| Take a screenshot | The camera button, or **Ctrl + Option + S**. The screen under your mouse flashes white to confirm |
 | Mute your microphone | The mic button, or **Ctrl + Option + M** |
 | Mute the other people (system audio) | The speaker button, or **Ctrl + Option + N** |
+| Take a screenshot | The camera button, or **Ctrl + Option + S**. The screen under your mouse flashes white to confirm |
+| Take notes | The notes button, or **Ctrl + Option + T**. See [Taking notes](#taking-notes) |
 | Pick how the summary is written | **⋮ → Summary style** |
 | Summarize or re-summarize a past meeting | **⋮ → Summarize a meeting…**, then pick its folder |
 | Transcribe a meeting again (new model, language or names) | **⋮ → Transcribe a meeting…**, then pick its folder |
 | Change settings | **⋮ → Settings…** (⌘ ,) |
 | Open the folder with all meetings | **⋮ → Open meetings folder** |
 
-Shortcuts work in any app and need no extra permission. If another app already uses a combination, you get a notification.
+From top to bottom the bar has: the record button with a timer, the two **mute** buttons, the **screenshot and notes**
+buttons (greyed out until you record), then **⋮ More**, **Hide** and **Quit**.
+
+Shortcuts work in any app and need no extra permission. You can change them all in Settings → Shortcuts. If another
+app already uses a combination, you get a notification.
 
 **Muting.** Works any time, even before you start recording, and carries over to the next recording. A muted
 button gets a red line across it. Muted audio is replaced with silence before it is saved, so it cannot be
@@ -143,15 +150,56 @@ and mute state. Click the tab to bring the bar back, or drag it elsewhere.
 **Private by design.** The bar never steals focus from the app you are in, and by default it is kept out of
 your screenshots and screen shares. To show it there, turn on *Settings → Recording → Floating bar*.
 
+### Taking notes
+
+Press the notes button (or **Ctrl + Option + T** from any app) while recording. A small panel opens beside the bar
+with a plain text box, and you can start typing right away. The meeting window you are in stays in front, so you can
+keep an eye on the call. Press the shortcut again, or the × on the panel, to close it. Nothing is lost when you close it.
+
+<p align="center">
+  <img src="docs/screenshots/notes.png" alt="The notes button and the notes panel" width="900">
+</p>
+
+- Notes are saved to `notes.txt` in the meeting's folder, a normal text file you can open anywhere. Saving happens
+  when you stop typing for **1 second**, when you close the panel and when the recording stops. The panel shows
+  *Saved* or *Not saved yet*. (If you quit during a recording, the app saves them first.)
+- **Add time** (or **⌘ T** inside the panel) puts the recording time, like `[12:34]`, at the cursor, so a note can be
+  matched to the moment in the transcript. A time and the space after it behave as one piece: one Backspace or
+  Delete removes both.
+- The usual editing shortcuts work in the box: **⌘ A** (select all), **⌘ C**, **⌘ X**, **⌘ V** (pastes plain text only)
+  and **⌘ Z** (undo).
+- Hovering the notes button shows its shortcut only while you are recording, like the screenshot button.
+- A blue dot on the notes button tells you this meeting already has notes.
+- **Resize the panel** by dragging the small grip in its top corner (on the side away from the bar), or by pulling
+  its whole top edge or its whole outer side edge. Drag up and outwards to make it bigger: it grows upwards, up to the
+  top of the bar, and sideways up to 1.5 times its original width. Dragging over the text box does not select text. It can't get smaller than its original size. The size is remembered when you move the bar to the other
+  screen edge, and the next time you open the app.
+
+<p align="center">
+  <img src="docs/screenshots/notes-resize.png" alt="The notes panel at its original size, enlarged, and with the bar on the other side" width="900">
+</p>
+
+- **Claude reads your notes** together with the transcript, with every summary style (also your own styles), and makes
+  sure what you wrote down is covered: decisions, names, numbers, action items and questions. The summary does not
+  label things as "from your notes"; it is one document. Summarizing a meeting again uses its notes too.
+- Don't want that? Turn off *Use my notes when summarizing* in Settings → Summaries. Notes are still saved.
+- The notes are part of what is sent to Claude to write the summary (see the privacy note at the top).
+
+<p align="center">
+  <img src="docs/screenshots/notes-summary.png" alt="notes.txt in the meeting folder and how the processing panel mentions it" width="900">
+</p>
+
 ### After you stop
 
-The record button turns into a progress ring and a panel lists the steps: transcribing your microphone,
-transcribing the other side, summarizing, saving. When it is done you get **Summary** and **Folder** buttons.
+The record button turns into a progress ring and a panel lists the steps. *Transcribing* has parts of its own:
+your microphone, the system audio (the other side), and, if you left it on in Settings, **Speakers**, where the app
+works out who said what among the other people (it shows its own percentage, or *Downloading model* the very first time).
+Then come summarizing (it says *with your notes* when you took some) and saving. When it is done you get **Summary** and **Folder** buttons.
 You can start a new recording right away; a blue badge counts the meetings still being processed (they are
 handled one at a time). If something goes wrong, the panel says why.
 
 <p align="center">
-  <img src="docs/screenshots/processing.png" alt="Progress panel: transcribing, summarizing, done, failed" width="800">
+  <img src="docs/screenshots/processing.png" alt="Progress panel: transcribing, telling speakers apart, summarizing, done, failed" width="800">
 </p>
 
 ### Summary styles
@@ -175,6 +223,7 @@ Each meeting gets its own folder inside `~/Documents/Meetings` (changeable in Se
 ├── summary.docx            Word version of the summary, with the used screenshots embedded
 ├── summary-<style>.md      the summary as text, one file per style (e.g. summary-default.md)
 ├── transcript.md           the full transcript, with timestamps and screenshot markers
+├── notes.txt               the notes you typed during the meeting (only if you took notes)
 ├── shots/                  every screenshot you took
 ├── recordings/             the audio (your mic and the other participants)
 └── meta.json               timing information the app needs
@@ -233,13 +282,15 @@ update immediately; other changes apply from the next recording.
 |---|---|---|
 | After a recording → Summary | Summarize automatically with Claude. If off, the app only transcribes | on |
 | After a recording → Word document | Also save each summary as `.docx` | on |
+| After a recording → Meeting notes | Send the notes you took to Claude with the transcript | on |
 | Style → Default style | The style used for summaries | default |
 | Claude → CLI and model | Leave empty to find Claude Code and use your usual model | empty |
 
 ### Summary styles and Shortcuts
 
-**Summary styles** is where you edit, create, rename or delete styles. **Shortcuts** holds the four global
-shortcuts: click a box and press the combination you want (it needs at least one modifier key).
+**Summary styles** is where you edit, create, rename or delete styles. **Shortcuts** holds the five global
+shortcuts (record, screenshot, notes, mute microphone, mute system audio) and the one used inside the notes panel
+(insert the time). Click a box and press the combination you want (it needs at least one modifier key).
 
 <p align="center">
   <img src="docs/screenshots/settings_styles.png" alt="Settings: Summary styles tab" width="400">
@@ -274,7 +325,7 @@ file has a typo, you get a notification and the previous settings stay in effect
   folder's title (after the " - ") are added automatically.
 - **Made-up text:** Whisper sometimes invents "Terima kasih." or "Thank you." out of silence. Such segments are dropped,
   so a real, very quiet one-word "thank you" could occasionally go missing.
-- **Stopping** can freeze the menu for a few seconds while the audio is closed.
+- **Stopping** can make the bar pause for a few seconds while the audio is closed.
 - **Not yet tested** on a long real call with live system audio, hotkeys and microphone together.
 
 ---
@@ -283,9 +334,10 @@ file has a typo, you get a notification and the previous settings stay in effect
 
 | Problem | What to do |
 |---|---|
-| The icon disappears right after launch | Read `~/Library/Logs/MeetingTranscriber.log` |
+| The bar does not appear after launch | Read `~/Library/Logs/MeetingTranscriber.log` |
 | "Claude Code CLI not found" | Install Claude Code, or set its path under Settings → Summaries → Claude |
 | Screenshot error about Screen Recording | Allow the app in System Settings → Privacy & Security, then restart it |
+| The notes button is greyed out | Notes (like screenshots) only work while recording. Start a recording first |
 | A meeting failed to process or summarize | **⋮ → Summarize a meeting…**, or use the command line below |
 | The summary fails on a very long meeting | See "Very long meetings" above |
 | Other participants are silent in the transcript | The transcript starts with a ⚠ warning when a track was silent (stretches you muted yourself don't count). Check the Screen & System Audio Recording permission |
@@ -315,7 +367,7 @@ small native launcher, assembles `MeetingTranscriber.app`, ad-hoc code-signs it 
 thin launcher that starts `.venv/bin/python -m mt.app` from the project folder, so macOS attributes permissions to
 the app instead of to Terminal or a bare Python binary. Logs go to `~/Library/Logs/MeetingTranscriber.log`.
 
-Run the tests with `.venv/bin/python -m pytest tests` (install `pytest` first if needed).
+Run the tests with `.venv/bin/python -m unittest discover tests`.
 
 ### How recording works
 - **Microphone:** `sounddevice` input stream on the default input device, 16 kHz mono, written to `recordings/mic.wav`.
@@ -325,6 +377,15 @@ Run the tests with `.venv/bin/python -m pytest tests` (install `pytest` first if
 - **Screenshots:** captured with Quartz at the real pixel resolution of the display under the mouse, scaled by
   `screenshot_scale`, saved as `shots/shot_<seconds>.jpg` (JPEG quality 80). A white flash window confirms each capture.
 - **Hotkeys:** Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission.
+- **Notes:** the notes panel is the one bar panel that can take the keyboard (an `NSPanel` that is key-capable but
+  non-activating, so the meeting app stays in front). Its page is a `contenteditable` box; a timestamp is a
+  non-editable chip that is written out as `[mm:ss]` (`[h:mm:ss]` from the first hour on); Backspace/Delete next to a
+  time (and the space after it) removes the whole thing. The page sends the plain text to the app after 1 s without
+  typing and on close/stop/quit (`SAVE_AFTER` in `notes.html`), and the app writes `notes.txt` atomically
+  (`mt/notes.py`). Because the app has no menu bar, it installs a small hidden Edit menu at start-up
+  (`install_edit_menu`) so ⌘A/C/V/X/Z reach text boxes. The panel size is kept as `notes_w`/`notes_h` in
+  `overlay.json` next to `config.toml`: at least the page's natural size, at most 1.5× as wide, and as tall as the top of
+  the bar allows; its bottom edge stays level with the notes button, and it opens on the screen side of the bar.
 - **`meta.json`** stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
   `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device_events` when the microphone changed
   mid-recording (`changed` / `stalled`, `reopened` with the new device name).
@@ -337,7 +398,10 @@ silence is skipped. Mic bursts whose loudness envelope mirrors the system audio 
 after transcription. Language is detected per burst (a pause of 1.5 s or more starts a new one), limited to
 `allowed_languages`; very short bursts reuse the previous burst's language. Roughly 30× faster than real time on Apple Silicon.
 
-If speaker separation is on, the system track is also run through sherpa-onnx (`mt/diarize.py`): pyannote segmentation
+If speaker separation is on, the system track is also run through sherpa-onnx (`mt/diarize.py`). It is the third part of
+the *Transcribing* step in the progress panel: `diarize.py` reports its progress through helpers in `mt/progress.py`
+(`diarizing(percent)`, `MATCHING_VOICES`, `downloading_model(n)`, `speakers_found(...)`), which `mt/jobs.py` turns into
+the "Speakers" line (it is only listed when `diarize` is on, and shows *Skipped* if the models could not be loaded). The process: pyannote segmentation
 cuts it into speech turns, grouped by voice (3D-Speaker embeddings, CPU, ~25× real time). The groups are deliberately too
 fine; each is averaged into one voiceprint and groups whose voiceprints are close (cosine distance below 0.35) are
 merged, tiny groups first. Each Whisper segment gets the speaker who talks most during it. The two models (~35 MB)
@@ -348,7 +412,9 @@ The result is `transcript.md`: `[hh:mm:ss] Speaker: text` lines plus `(screensho
 
 ### How summarizing works
 `mt/summarize.py` runs `claude -p` with the chosen prompt, the transcript and a calendar of the next 15 days (so "next
-Friday" resolves correctly) on stdin. Claude may read only `./shots/*` (`--allowedTools "Read(./shots/*)"`). The output is
+Friday" resolves correctly) on stdin. If the meeting has a `notes.txt` (and `use_notes` is on) it follows, between markers, with instructions that are added to
+every request whatever the style: cover everything in it, use its `[mm:ss]` times to find the moment, don't label it
+as "from the notes", treat it as data. Claude may read only `./shots/*` (`--allowedTools "Read(./shots/*)"`). The output is
 saved as `summary-<style>.md`; the Word export (pandoc via `pypandoc`) and the folder renaming use it.
 
 ### Security
@@ -378,9 +444,10 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 | `screenshot_scale` | `50` | percent (10–100) of the screen's real pixel size |
 | `claude_path`, `claude_model` | auto, Claude Code's default | |
 | `start_muted_mic`, `start_muted_system` | `false` | start the app with that side muted |
-| `overlay` | `true` | show the floating control bar |
 | `overlay_in_captures` | `false` | show the bar in screenshots and screen shares |
-| `hotkey_record`, `hotkey_screenshot`, `hotkey_mute_mic`, `hotkey_mute_system` | `<ctrl>+<alt>+r` / `s` / `m` / `n` | modifiers `<ctrl> <alt> <shift> <cmd>` plus a letter, digit or `<f1>`…`<f20>`; must differ |
+| `hotkey_record`, `hotkey_screenshot`, `hotkey_notes`, `hotkey_mute_mic`, `hotkey_mute_system` | `<ctrl>+<alt>+r` / `s` / `t` / `m` / `n` | global shortcuts: modifiers `<ctrl> <alt> <shift> <cmd>` plus a letter, digit or `<f1>`…`<f20>`; must differ |
+| `hotkey_notes_time` | `<cmd>+t` | inside the notes panel: insert the recording time (same format) |
+| `use_notes` | `true` | send `notes.txt` to Claude with the transcript |
 
 Prompts live in `~/Library/Application Support/MeetingTranscriber/prompts/` (copied from `prompts/` on first run).
 
@@ -405,6 +472,7 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 |---|---|
 | `mt/app.py` | the app: actions, permission flow, glue to the bar |
 | `mt/overlay.py`, `mt/ui/overlay.html`, `mt/ui/popup.html` | the floating bar, its menu, tooltips and status panel |
+| `mt/notes.py`, `mt/ui/notes.html` | meeting notes: `notes.txt` storage, and the notes panel (a text box with timestamp chips) |
 | `mt/jobs.py`, `mt/progress.py` | progress of the meetings being processed |
 | `mt/recorder.py`, `mt/flash.py` | recording, screenshots, screenshot flash |
 | `mt/transcribe.py`, `mt/audio.py` | Whisper transcription, echo handling, audio compression |

@@ -11,7 +11,7 @@ from pathlib import Path
 import numpy as np
 
 from .audio import find_track
-from .progress import transcribing
+from .progress import SPEAKERS_FAILED, speakers_found, transcribing
 
 SR = 16000
 SILENT_RMS = 0.003
@@ -434,9 +434,9 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
             turns = diarize.diarize(tracks[others][0], cfg.get("diarize_speakers", 0), progress)
             segs[others] = label_speakers(segs[others], turns, tracks[others][1], others)
             count = len({s["speaker"] for s in segs[others]})
-            progress(f"Found {count} {others} speaker(s)" if count > 1 else f"{others}: one speaker")
+            progress(speakers_found(others, count))
         except Exception as e:  # never lose the transcript because speakers could not be separated
-            msg = f"Speakers were not told apart: {str(e)[:150]}"
+            msg = f"{SPEAKERS_FAILED}{str(e)[:150]}"
             notes.append(f"⚠ {msg}")
             progress(msg)
     merged = merge_segments(sorted(segs[mine] + segs[others], key=lambda s: s["start"]))
