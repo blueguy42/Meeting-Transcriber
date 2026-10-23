@@ -30,7 +30,7 @@ items. You get a Word document and a text file, ready to share.
 1. [What you get](#what-you-get)
 2. [Get started](#get-started)
 3. [Everyday use](#everyday-use)
-   · [The bar](#the-bar) · [Notes](#taking-notes) · [Documents](#adding-documents) · [After you stop](#after-you-stop) · [Summary styles](#summary-styles)
+   · [The bar](#the-bar) · [Screenshots](#taking-screenshots) · [Notes](#taking-notes) · [Documents](#adding-documents) · [After you stop](#after-you-stop) · [Summary styles](#summary-styles)
 4. [Where your files go](#where-your-files-go)
 5. [Settings](#settings)
 6. [Privacy and permissions](#privacy-and-permissions)
@@ -134,7 +134,7 @@ record (**screenshot, notes, add documents, documents list**; greyed out until y
 | Start or stop a recording | The record button, or **Ctrl + Option + R**. Stopping also processes the meeting |
 | Mute my microphone | The mic button, or **Ctrl + Option + M** |
 | Mute the other people (system audio) | The speaker button, or **Ctrl + Option + N** |
-| Take a screenshot | The camera button, or **Ctrl + Option + S**. The screen under your mouse flashes white to confirm |
+| Take a screenshot | The camera button, or **Ctrl + Option + S**: the screen freezes and you choose the area. See [Taking screenshots](#taking-screenshots) |
 | Take notes | The notes button, or **Ctrl + Option + T**. See [Taking notes](#taking-notes) |
 | Add documents for context | The paperclip button, or **Ctrl + Option + D**. See [Adding documents](#adding-documents) |
 | See or remove the added documents | The documents button (a page with a corner) |
@@ -171,6 +171,31 @@ state. Click the tab to bring the bar back, or drag it elsewhere.
 
 **Private by design.** The bar never takes the keyboard from the app you are in (so it never interrupts a call), and by
 default it is kept out of your screenshots and screen shares. See [Privacy and permissions](#privacy-and-permissions).
+
+### Taking screenshots
+
+Press the camera button (or **Ctrl + Option + S** from any app) while recording. The screen under your mouse **freezes**
+into a still picture, dimmed a little, so what you see is exactly what gets saved, even if a video keeps playing. Then:
+
+1. **Drag** to draw the area you want. Its edge is a solid white line and everything outside is dimmed. A small label shows its
+   size in real screen pixels.
+2. **Adjust it**: drag inside to move it, or pull a corner or any part of an edge to resize it (the pointer shows the matching
+   resize arrow).
+3. Click **✓** (bottom right, inside the frame) or press **Return** to take the screenshot; **✕** or **Esc** cancels and saves nothing.
+   **⌘ A** selects the whole screen. Point at a button and it lights up (✕ turns red, ✓ a lighter blue) with a small label
+   naming it and its key.
+
+<p align="center">
+  <img src="docs/screenshots/screenshot-select.png" alt="Choosing the screenshot area: frozen screen, white selection, cancel and screenshot buttons" width="900">
+</p>
+
+- Only the area you chose is saved, as `shots/shot_<seconds>.jpg`, scaled by *Settings → Recording → Screenshots → Screen
+  resolution*. The screen flashes white, and the transcript gets a `(screenshot: …)` marker at the moment
+  the screen froze.
+- If the area is too small to hold the two buttons, they sit just outside it, below or above.
+- With several screens, the one under your mouse freezes. The bar and its popups close while you choose, and the choosing
+  window is not visible to people you share your screen with.
+- If the recording stops while you are choosing, the choice is cancelled.
 
 ### Taking notes
 
@@ -321,7 +346,7 @@ immediately; other changes apply from the next recording.
 | Meetings → Folder | Where meetings are saved | `~/Documents/Meetings` |
 | Meetings → Audio files | AAC (smallest, ~30 MB/hour), FLAC (lossless, ~110 MB/hour) or keep the WAV (~230 MB/hour) | AAC |
 | Microphone and system audio → When the app starts | Start with the microphone and/or system audio muted | both off |
-| Screenshots → Resolution | Size of saved screenshots, as pixel sizes and a percentage of your screen | 50% |
+| Screenshots → Screen resolution | How sharp the saved area is: a share of your screen's real resolution, shown as pixel sizes for your main display | 50% |
 | Floating bar → Screen sharing | Show the bar in screenshots and screen shares | off |
 
 ### Transcription
@@ -485,8 +510,11 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   A watchdog reopens the stream when the default input changes, disappears or stops delivering audio (gap padded with silence).
 - **System audio:** the `sck-audio` helper uses ScreenCaptureKit on the first display (all system audio, excluding the app
   itself) and writes `recordings/system.wav`. It reports the start time of the first buffer so tracks can be aligned.
-- **Screenshots:** captured with Quartz at the real pixel resolution of the display under the mouse, scaled by
-  `screenshot_scale`, saved as `shots/shot_<seconds>.jpg` (JPEG quality 80). A white flash window confirms each capture.
+- **Screenshots:** the display under the mouse is captured with Quartz at its real pixel resolution at the moment you press the
+  button (`mt/screenshot.py`), shown full screen in a borderless window (`AreaSelector`) where you choose the area, and only the
+  chosen crop is scaled by `screenshot_scale` and saved as `shots/shot_<seconds>.jpg` (JPEG quality 80); the number is the time
+  the screen froze. The window is hidden from screen sharing (`NSWindowSharingNone`), sits above the bar, and hands the keyboard
+  back to the meeting app when it closes. A white flash confirms each added screenshot.
 - **`meta.json`** stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
   `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device_events` when the microphone changed
   mid-recording (`changed` / `stalled`, `reopened` with the new device name).
@@ -571,7 +599,7 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 | `auto_summarize` | `true` | `false` = transcribe only |
 | `export_docx` | `true` | also write `summary.docx` with every summary |
 | `default_prompt` | `"default"` | prompt file name without `.md` |
-| `screenshot_scale` | `50` | percent (10–100) of the screen's real pixel size |
+| `screenshot_scale` | `50` | percent (10–100) of the chosen area's real pixel size (the screen's, for a whole-screen shot) |
 | `claude_path`, `claude_model` | auto, Claude Code's default | |
 | `start_muted_mic`, `start_muted_system` | `false` | start the app with that side muted |
 | `overlay_in_captures` | `false` | show the bar in screenshots and screen shares |
@@ -607,7 +635,7 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 | `mt/notes.py`, `mt/ui/notes.html` | meeting notes: `notes.txt` storage, and the notes panel (a text box with timestamp chips) |
 | `mt/documents.py`, `mt/ocr.py` | meeting documents: copying, the manifest, reading each file type, the background reader, and Apple Vision OCR |
 | `mt/jobs.py`, `mt/progress.py` | progress of the meetings being processed |
-| `mt/recorder.py`, `mt/flash.py` | recording, screenshots, screenshot flash |
+| `mt/recorder.py`, `mt/screenshot.py`, `mt/flash.py` | recording, choosing and saving screenshots, screenshot flash |
 | `mt/transcribe.py`, `mt/audio.py` | Whisper transcription, echo handling, audio compression |
 | `mt/diarize.py` | telling the other people apart (sherpa-onnx) |
 | `mt/pipeline.py`, `mt/summarize.py`, `mt/docx_export.py` | processing flow, Claude summary, Word export |

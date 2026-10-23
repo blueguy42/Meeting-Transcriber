@@ -43,6 +43,14 @@ def _grab_display(x: float, y: float):
     cg = Quartz.CGDisplayCreateImage(did)
     if cg is None:
         raise RuntimeError("could not capture the screen")
+    return cg_to_pil(cg)
+
+
+def cg_to_pil(cg):
+    """A Quartz picture (CGImage) as a Pillow image."""
+    import Quartz
+    from PIL import Image
+
     w, h, stride = Quartz.CGImageGetWidth(cg), Quartz.CGImageGetHeight(cg), Quartz.CGImageGetBytesPerRow(cg)
     data = Quartz.CGDataProviderCopyData(Quartz.CGImageGetDataProvider(cg))
     return Image.frombytes("RGB", (w, h), bytes(data), "raw", "BGRX", stride, 1)
@@ -341,15 +349,26 @@ class Recorder:
             self._wav.writeframes(chunk)
 
     def screenshot(self) -> Path | None:
+        """The whole screen under the mouse, saved at once (the command line uses this; the app lets you choose an area)."""
+        if not self.recording:
+            return None
+        self.require_screen_access()
+        secs = time.time() - self.t0
+        x, y = _mouse_position()
+        return self.save_shot(_grab_display(x, y), secs)
+
+    @staticmethod
+    def require_screen_access() -> None:
+        if not _screen_access():
+            raise RuntimeError("Screen Recording permission needed: allow Meeting Transcriber in System Settings, then restart it")
+
+    def save_shot(self, img, secs: float) -> Path | None:
+        """Save a picture (the whole screen or a chosen area) as shots/shot_<seconds>.jpg, scaled by screenshot_scale.
+        `secs` is how far into the recording the picture was taken: the moment the screen froze."""
         if not self.recording:
             return None
         from PIL import Image
 
-        if not _screen_access():
-            raise RuntimeError("Screen Recording permission needed: allow Meeting Transcriber in System Settings, then restart it")
-        secs = time.time() - self.t0
-        x, y = _mouse_position()
-        img = _grab_display(x, y)
         scale = self.cfg["screenshot_scale"]
         if scale < 100:
             img = img.resize((round(img.width * scale / 100), round(img.height * scale / 100)), Image.LANCZOS)

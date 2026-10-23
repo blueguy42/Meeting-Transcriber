@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PyObjCTools import AppHelper
 
-from . import config, documents, notes, permissions, progress
+from . import config, documents, notes, permissions, progress, screenshot
 from .flash import flash_screen
 from .hotkeys import Hotkeys
 from .jobs import Tracker
@@ -112,6 +112,7 @@ class App:
             self._hotkeys = None
             notify("Meeting Transcriber", "Global hotkeys are off", str(e)[:150])
         self.docs = documents.DocumentWorker(on_change=lambda: on_main(self._push_overlay))  # reads the documents you add, in the background
+        self._selector = None  # the area chooser of a screenshot, while it is on screen
         self._notes_text = ""  # what is in the notes panel for the current (or last) recording
         self._notes_dir: Path | None = None  # ...and the meeting folder it is saved in (kept after stopping, for the last keystrokes)
         self._settings = None  # the Settings window, created on first use
@@ -419,6 +420,8 @@ class App:
                 self.started = time.time()
                 self._status("Recording…")
             else:
+                if self._selector is not None:
+                    self._selector.cancel()  # the recording is over: no more screenshots
                 if self._overlay is not None:
                     self._overlay.close_notes()  # saves the last keystrokes (notes.txt is read when the summary is written)
                     self._overlay.close_docs()
@@ -445,14 +448,42 @@ class App:
         self._toggle_mute("system", "system audio")
 
     def shot(self, _):
-        if not self.rec.recording:
+        """Freeze the screen under the mouse, let you choose an area, and save only that area (see screenshot.py)."""
+        if not self.rec.recording or self._selector is not None:
             return
         try:
-            self.rec.screenshot()
-            on_main(flash_screen)
-            self._status(f"Screenshots: {self.rec.shot_count}")
+            self.rec.require_screen_access()
+            screen = screenshot.screen_under_mouse()
+            frozen = screenshot.freeze(screen)
+            if frozen is None:
+                raise RuntimeError("could not capture the screen")
         except Exception as e:
             notify("Meeting Transcriber", "Screenshot failed", str(e))
+            return
+        secs = time.time() - self.rec.t0  # the moment the screen froze: what the transcript marker says
+        if self._overlay is not None:
+            self._overlay.close_popups()
+
+        def done(box):
+            self._selector = None
+            if box is None or not self.rec.recording:  # cancelled, or the recording ended meanwhile
+                return
+            try:
+                import Quartz
+
+                from .recorder import cg_to_pil
+
+                x, y, w, h = box
+                crop = Quartz.CGImageCreateWithImageInRect(frozen, ((x, y), (w, h)))
+                self.rec.save_shot(cg_to_pil(crop), secs)
+                on_main(flash_screen)
+                self._status(f"Screenshots: {self.rec.shot_count}")
+            except Exception as e:
+                notify("Meeting Transcriber", "Screenshot failed", str(e))
+            self._push_overlay()
+
+        self._selector = screenshot.AreaSelector(screen, frozen, done)
+        self._selector.show()
 
     def toggle_notes(self, _):
         if not self.rec.recording or self._overlay is None:
