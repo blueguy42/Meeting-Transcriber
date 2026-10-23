@@ -10,18 +10,20 @@ that matter, by path (see summarize.py). Reading happens in the background, one 
 meeting's own summary waits for it.
 """
 
+import logging
 import hashlib
 import json
 import queue
 import re
 import shutil
 import threading
-import traceback
 import uuid
 import zipfile
 from pathlib import Path
 
 from . import ocr
+
+log = logging.getLogger("mt.documents")
 
 MAX_DOCUMENTS = 30
 MAX_BYTES = 100 * 1024 * 1024
@@ -221,7 +223,7 @@ def _ocr_pictures(pictures, progress, doc_id) -> list[str]:
                 if lines:
                     chunks.append(f"--- picture {i} ({Path(name).name}) ---\n" + "\n".join(lines))
         except Exception:
-            traceback.print_exc()
+            log.exception("OCR of an embedded picture failed")
         progress(i / len(pictures))
     return chunks
 
@@ -254,7 +256,7 @@ def read_pdf(path: Path, ocr_on: bool, progress, doc_id: str) -> tuple[str, str,
                     if not layer:
                         scanned += 1
             except Exception:
-                traceback.print_exc()
+                log.exception("OCR of a page failed")
         if text:
             parts.append(f"--- page {i + 1} ---\n{text}")
         progress((i + 1) / max(pages, 1))
@@ -399,7 +401,7 @@ def process(meeting_dir: Path, doc: dict, on_change=lambda: None) -> None:
     except Cancelled:
         pass  # deleted while it was being read: delete() already removed what it knew about
     except Exception as e:
-        traceback.print_exc()
+        log.exception("Reading document %s failed", doc.get("name"))
         try:
             update(meeting_dir, doc_id, status="failed", note=str(e)[:80] or "Couldn't read this file")
             on_change()

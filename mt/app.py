@@ -3,14 +3,16 @@
 Run via the double-clickable MeetingTranscriber.app (or `python -m mt.app`).
 """
 
+import logging
 import os
+import re
 import subprocess
 import sys
 import threading
 import time
-import traceback
 from pathlib import Path
 
+from . import log as mtlog  # (sets the environment that quiets the libraries below)
 from PyObjCTools import AppHelper
 
 from . import config, documents, notes, permissions, progress, screenshot
@@ -22,6 +24,8 @@ from .pipeline import process, summarize_existing, transcribe_existing
 from .recorder import Recorder
 from .summarize import notes_lines
 from .transcribe import transcript_file
+
+log = logging.getLogger("mt.app")
 
 def on_main(fn, *args):
     """AppKit objects must only be touched from the main thread (hotkeys/workers run elsewhere)."""
@@ -37,8 +41,8 @@ def notify(title, subtitle, message=""):
         n.setSubtitle_(subtitle)
         n.setInformativeText_(message)
         center = NSUserNotificationCenter.defaultUserNotificationCenter()
+        log.info("Notification: %s", f"{title}: {subtitle} {message}".strip())
         if center is None:  # not running from an app bundle: the log is all we have
-            print(f"{title}: {subtitle} {message}".strip(), flush=True)
             return
         center.deliverNotification_(n)
 
@@ -100,6 +104,8 @@ class App:
         self.cfg = config.defaults()
         self._reload_cfg()
         self.cfg["meetings_dir"].mkdir(parents=True, exist_ok=True)
+        self._progress_throttle = mtlog.Throttle()
+        log.info("Meetings folder: %s; permissions missing: %s", self.cfg["meetings_dir"], permissions.missing() or "none")
         self.rec = Recorder(self.cfg, on_warning=lambda m: notify("Meeting Transcriber", "Warning", m))
         self.prompt = self.cfg["default_prompt"]
         self.started = 0.0
@@ -168,7 +174,10 @@ class App:
         self._on_settings_changed()
 
     def _status(self, text):
-        print(text, flush=True)  # the progress shown on the bar comes from jobs.py; this goes to the log
+        # the progress shown on the bar comes from jobs.py; the log gets the steps, not every percent
+        if self._progress_throttle(text):
+            problem = re.search(r"silent|failed|not told apart|muted", text, re.I)
+            log.log(logging.WARNING if problem else logging.INFO, text)
 
     # ---- permissions
     def _welcome(self):
@@ -261,7 +270,7 @@ class App:
                 self._overlay.show()
             self._overlay.update(self._overlay_state())
         except Exception as e:
-            traceback.print_exc()
+            log.exception("Control bar failed to start")
             if self._overlay is None:  # without the bar there is no way to use the app
                 bring_to_front()
                 alert("The control bar could not start", f"{str(e)[:300]}\n\nSee ~/Library/Logs/MeetingTranscriber.log.")
@@ -414,12 +423,14 @@ class App:
                            "Allow Screen & System Audio Recording in System Settings, then reopen the app.")
                 self.rec.cfg = self._reload_cfg()  # pick up edits to config.toml
                 self.rec.start()
+                log.info("Recording started: %s", self.rec.dir)
                 self._notes_text, self._notes_dir = "", self.rec.dir  # a fresh notes panel for this meeting
                 if self._overlay is not None:
                     self._overlay.reset_notes()
                 self.started = time.time()
                 self._status("Recording…")
             else:
+                log.info("Recording stopped after %ds: %s", time.time() - self.started, self.rec.dir)
                 if self._selector is not None:
                     self._selector.cancel()  # the recording is over: no more screenshots
                 if self._overlay is not None:
@@ -429,7 +440,7 @@ class App:
                 self._run_pipeline(d)
         except Exception as e:
             notify("Meeting Transcriber", "Error", str(e))
-            traceback.print_exc()
+            log.exception("Record toggle failed")
         self._push_overlay()
 
     def _toggle_mute(self, track, label):
@@ -504,7 +515,7 @@ class App:
                 config.set_value("documents_ocr", ocr_on)  # the box starts the way you left it
                 self._reload_cfg()
             except Exception:
-                traceback.print_exc()
+                log.exception("Could not save the OCR setting")
         new, skipped = documents.add(meeting, [Path(p) for p in paths], int(time.time() - self.started), ocr_on)
         if skipped:
             notify("Meeting Transcriber", "Some documents were not added", "; ".join(skipped)[:220])
@@ -601,6 +612,7 @@ class App:
             reading=reading,  # the summary also reads the notes you took (shown under "Summarizing")
         )
         on_main(self._open_status)
+        log.info("Job queued: %s (summarize=%s, transcribe_only=%s, summarize_only=%s)", d.name, bool(cfg0["auto_summarize"] or summarize_only), transcribe_only, summarize_only)
 
         def say(text):
             self.jobs.feed(job, text)
@@ -611,6 +623,8 @@ class App:
                 try:
                     cfg = self._reload_cfg()
                     self.jobs.begin(job)
+                    t0 = time.time()
+                    log.info("Job started: %s", d.name)
                     if reading:  # the summary needs the documents: wait for the ones still being read
                         self.docs.wait(d, lambda done, total: say(progress.reading_documents(done, total)))
                     if transcribe_only:
@@ -621,14 +635,14 @@ class App:
                         new_dir, out = process(d, cfg, prompt, progress=say)
                     self.jobs.finish(job, new_dir, out)
                     on_main(self._open_status)
-                    self._status(f"Done: {new_dir.name}")
+                    log.info("Job done in %ds: %s", time.time() - t0, out)
                     notify("Meeting Transcriber", "Done", out.name)
                     subprocess.run(["open", "-R", str(out)])  # reveal the result in Finder
                 except Exception as e:
-                    traceback.print_exc()
+                    log.exception("Processing failed for %s", d.name)
                     self.jobs.fail(job, str(e))
                     on_main(self._open_status)
-                    self._status("Failed - see notification")
+                    log.error("Job failed: %s: %s", d.name, e)
                     notify("Meeting Transcriber", "Processing failed", str(e)[:200])
                 finally:
                     with self._pending_lock:
@@ -643,7 +657,7 @@ class App:
             try:
                 self._missing = permissions.missing()
             except Exception:
-                traceback.print_exc()
+                log.exception("Permission check failed")
 
     def _restart_pending(self) -> bool:
         """You switched on Screen Recording in System Settings, so the next step is a restart."""
@@ -704,6 +718,7 @@ def _stay_responsive():
 
 
 def main():
+    mtlog.setup()
     _hide_dock_icon()
     from .settings_window import install_edit_menu
 

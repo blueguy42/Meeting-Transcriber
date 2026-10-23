@@ -22,9 +22,9 @@ The `host` (the App in app.py) supplies the content and does the work:
     host.overlay_notes_save(text) -> None | an error message
 """
 
+import logging
 import json
 import os
-import traceback
 from pathlib import Path
 
 import objc
@@ -45,6 +45,8 @@ from Foundation import NSMakePoint, NSMakeRect, NSObject, NSRunLoop, NSRunLoopCo
 from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
 
 from . import config
+
+log = logging.getLogger("mt.overlay")
 
 UI = Path(__file__).parent / "ui"
 NONACTIVATING_PANEL = 1 << 7
@@ -239,7 +241,7 @@ class _Surface:
         try:
             self.on_message(msg)
         except Exception:
-            traceback.print_exc()
+            log.exception("Overlay message handler failed (op=%s)", msg.get("op"))
 
     def render(self, payload: dict) -> None:
         self.web.evaluateJavaScript_completionHandler_(f"window.render && window.render({_js(payload)})", None)

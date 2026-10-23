@@ -486,7 +486,7 @@ Python packages are listed in [`requirements.txt`](requirements.txt).
 `build_app.sh` builds the `sck-audio` Swift helper, creates `.venv` and installs `requirements.txt`, compiles a small native
 launcher, assembles `MeetingTranscriber.app`, ad-hoc code-signs it and registers the icon. The app is a thin launcher that
 starts `.venv/bin/python -m mt.app` from the project folder, so macOS attributes permissions to the app instead of to Terminal
-or a bare Python binary. Logs go to `~/Library/Logs/MeetingTranscriber.log`.
+or a bare Python binary. Logs go to `~/Library/Logs/MeetingTranscriber.log` (every line has a timestamp, level and source; the file rotates to `.log.1` at 5 MB).
 
 Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests need macOS and skip themselves elsewhere.)
 

@@ -21,6 +21,12 @@ p.environment = env
 // Keep a log: a crash at startup otherwise just makes the floating bar vanish.
 let logDir = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Logs")
 let logURL = logDir.appendingPathComponent("MeetingTranscriber.log")
+// Keep one previous log (MeetingTranscriber.log.1) once this one passes 5 MB, so it never grows without bound.
+if let size = (try? FileManager.default.attributesOfItem(atPath: logURL.path))?[.size] as? Int, size > 5_000_000 {
+    let old = logDir.appendingPathComponent("MeetingTranscriber.log.1")
+    try? FileManager.default.removeItem(at: old)
+    try? FileManager.default.moveItem(at: logURL, to: old)
+}
 if !FileManager.default.fileExists(atPath: logURL.path) {
     FileManager.default.createFile(atPath: logURL.path, contents: nil)
 }

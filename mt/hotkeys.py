@@ -9,10 +9,12 @@ Hotkeys are written as "<ctrl>+<alt>+r" (modifiers: ctrl, alt, shift, cmd; keys:
 Keys are physical positions (ANSI layout), the same as the key recorder in the Settings window.
 """
 
+import logging
 import ctypes
 import re
-import traceback
 from ctypes import CFUNCTYPE, POINTER, Structure, byref, c_int32, c_uint32, c_void_p
+
+log = logging.getLogger("mt.hotkeys")
 
 _carbon = ctypes.CDLL("/System/Library/Frameworks/Carbon.framework/Carbon")
 
@@ -93,7 +95,7 @@ class Hotkeys:
                 try:
                     callback()
                 except Exception:
-                    traceback.print_exc()  # never let an exception unwind into Carbon
+                    log.exception("Hotkey callback failed")  # never let an exception unwind into Carbon
                 return 0
         return _ERR_NOT_HANDLED  # not ours: let any other handler see it
 

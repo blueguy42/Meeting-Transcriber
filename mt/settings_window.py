@@ -4,9 +4,9 @@ The page talks to Python through a WKScriptMessageHandler ("bridge"): no web ser
 open port. Every request is validated in settings_api.py.
 """
 
+import logging
 import json
 import subprocess
-import traceback
 from pathlib import Path
 
 import objc
@@ -23,6 +23,8 @@ from Foundation import NSObject
 from WebKit import WKUserContentController, WKWebView, WKWebViewConfiguration
 
 from . import settings_api
+
+log = logging.getLogger("mt.settings")
 
 HTML = Path(__file__).parent / "ui" / "settings.html"
 STYLE = 1 | 2 | 4 | 8  # titled, closable, miniaturizable, resizable
@@ -117,7 +119,7 @@ class SettingsWindow:
         except (ValueError, KeyError) as e:
             self._reply(rid, False, str(e.args[0]) if e.args else "Invalid request")
         except Exception as e:
-            traceback.print_exc()
+            log.exception("Settings request failed")
             self._reply(rid, False, f"Unexpected error: {e}")
 
     def _reply(self, rid, ok: bool, payload) -> None:
