@@ -22,6 +22,7 @@ class ProgressMessages(unittest.TestCase):
         self.assertEqual(progress.parse(progress.speakers_found("Others", 1), labels), {"kind": "diarized", "failed": False})
         self.assertEqual(progress.parse(progress.SPEAKERS_FAILED + "no models", labels), {"kind": "diarized", "failed": True})
         self.assertIsNone(progress.parse("Found 2 Nobody speaker(s)", labels))
+        self.assertEqual(progress.parse(progress.reading_documents(3, 5), labels), {"kind": "readdocs", "done": 3, "total": 5})
         self.assertIsNone(progress.parse("Transcribing Nobody… 5%", labels))
 
 
@@ -95,6 +96,21 @@ class Flow(unittest.TestCase):
         j = t.add(Path("/m/2026-10-20_1600"), summarize=True)
         t.begin(j)  # (queued behind the first one, but begin() works on any job)
         self.assertEqual(len(t.snapshot()[1]["steps"][1]["children"]), 2)
+
+    def test_reading_documents_and_the_summary_lines(self):
+        t = Tracker(("Me", "Others"))
+        i = t.add(Path("/m/2026-10-20_1700"), summarize=True, notes=4, documents=3, reading=True)
+        steps = t.snapshot()[0]["steps"]
+        self.assertEqual([s["key"] for s in steps], ["recorded", "readdocs", "transcribe", "summarize", "save"])
+        self.assertEqual(next(s for s in steps if s["key"] == "summarize")["detail"], "with your notes (4 lines)\nand 3 documents")
+        t.begin(i)
+        self.assertEqual(t.snapshot()[0]["stage"], "reading")
+        t.feed(i, progress.reading_documents(2, 5))
+        self.assertEqual(t.snapshot()[0]["steps"][1]["sub"], "2 of 5")
+        t.feed(i, progress.transcribing("Me", bursts=2))
+        self.assertEqual((t.snapshot()[0]["steps"][1]["state"], t.snapshot()[0]["stage"]), ("done", "transcribing"))
+        j = t.add(Path("/m/2026-10-20_1800"), summarize=True, documents=1)
+        self.assertEqual(next(s for s in t.snapshot()[1]["steps"] if s["key"] == "summarize")["detail"], "with 1 document")
 
     def test_failure_and_unknown_messages(self):
         self.t.begin(self.id)

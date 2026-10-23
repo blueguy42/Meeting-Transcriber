@@ -14,7 +14,7 @@ from . import config
 LANGUAGES = {"auto", "id", "en"}
 COMPRESSION = {"aac", "flac", "off"}
 MODIFIER = r"<(?:ctrl|alt|shift|cmd)>"
-HOTKEYS = ("hotkey_record", "hotkey_screenshot", "hotkey_notes", "hotkey_mute_mic", "hotkey_mute_system")  # global: must all differ
+HOTKEYS = ("hotkey_record", "hotkey_screenshot", "hotkey_notes", "hotkey_documents", "hotkey_mute_mic", "hotkey_mute_system")  # global: must all differ
 HOTKEY = re.compile(rf"^(?:{MODIFIER}\+)+(?:[a-z0-9]|<f(?:[1-9]|1[0-9]|20)>)$")
 MAX_PROMPT_CHARS = 20_000
 
@@ -22,7 +22,7 @@ MAX_PROMPT_CHARS = 20_000
 EDITABLE = [
     "language", "model", "vocabulary", "my_label", "others_label", "compress_audio", "export_docx",
     "auto_summarize", "default_prompt", "hotkey_record", "hotkey_screenshot",
-    "hotkey_mute_mic", "hotkey_mute_system", "hotkey_notes", "hotkey_notes_time", "use_notes", "start_muted_mic", "start_muted_system", "diarize", "diarize_speakers", "meetings_dir",
+    "hotkey_mute_mic", "hotkey_mute_system", "hotkey_notes", "hotkey_notes_time", "use_notes", "hotkey_documents", "use_documents", "documents_ocr", "start_muted_mic", "start_muted_system", "diarize", "diarize_speakers", "meetings_dir",
     "screenshot_scale", "claude_path", "claude_model", "overlay_in_captures",
 ]
 
@@ -86,7 +86,7 @@ def _check(key: str, v):
         if v not in COMPRESSION:
             raise ValueError("compress_audio must be aac, flac or off.")
         return v
-    if key in ("export_docx", "auto_summarize", "start_muted_mic", "start_muted_system", "diarize", "overlay_in_captures", "use_notes"):
+    if key in ("export_docx", "auto_summarize", "start_muted_mic", "start_muted_system", "diarize", "overlay_in_captures", "use_notes", "use_documents", "documents_ocr"):
         if not isinstance(v, bool):
             raise ValueError(f"{key} must be on or off.")
         return v

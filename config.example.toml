@@ -50,3 +50,9 @@
 # use_notes = true
 # hotkey_notes = "<ctrl>+<alt>+t"       # open / close the notes panel, from any app
 # hotkey_notes_time = "<cmd>+t"         # inside the notes panel: insert the recording time, e.g. [12:34]
+
+# Meeting documents (the paperclip button): files you add while recording are copied into the meeting folder and Claude
+# is given the list when summarizing. documents_ocr = the file chooser's "Read text in images (OCR)" box starts ticked.
+# use_documents = true
+# documents_ocr = true
+# hotkey_documents = "<ctrl>+<alt>+d"

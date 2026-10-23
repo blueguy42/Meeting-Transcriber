@@ -13,7 +13,7 @@ from pathlib import Path
 
 from PyObjCTools import AppHelper
 
-from . import config, notes, permissions
+from . import config, documents, notes, permissions, progress
 from .flash import flash_screen
 from .hotkeys import Hotkeys
 from .jobs import Tracker
@@ -111,6 +111,7 @@ class App:
         except OSError as e:
             self._hotkeys = None
             notify("Meeting Transcriber", "Global hotkeys are off", str(e)[:150])
+        self.docs = documents.DocumentWorker(on_change=lambda: on_main(self._push_overlay))  # reads the documents you add, in the background
         self._notes_text = ""  # what is in the notes panel for the current (or last) recording
         self._notes_dir: Path | None = None  # ...and the meeting folder it is saved in (kept after stopping, for the last keystrokes)
         self._settings = None  # the Settings window, created on first use
@@ -239,6 +240,8 @@ class App:
             "recording": self.rec.recording,
             "elapsed": int(time.time() - self.started) if self.rec.recording else 0,
             "notesLines": notes.line_count(self._notes_text) if self.rec.recording else 0,
+            "docsCount": documents.count(self.rec.dir) if self.rec.recording else 0,
+            "docsReady": sum(1 for d in documents.load(self.rec.dir) if d.get("status") == "ready") if self.rec.recording else 0,
             "micMuted": bool(self.rec.mic_muted),
             "sysMuted": bool(self.rec.sys_muted),
             "busy": self.jobs.busy,
@@ -264,7 +267,7 @@ class App:
                 self.quit(None)
 
     def overlay_action(self, op):
-        {"toggle": self.toggle, "shot": self.shot, "notes": self.toggle_notes, "mute_mic": self.toggle_mic, "mute_system": self.toggle_system, "perm": self.fix_permissions, "quit": self.confirm_quit}[op](None)
+        {"toggle": self.toggle, "shot": self.shot, "notes": self.toggle_notes, "docs_add": self.add_documents, "mute_mic": self.toggle_mic, "mute_system": self.toggle_system, "perm": self.fix_permissions, "quit": self.confirm_quit}[op](None)
         self._push_overlay()
 
     def overlay_tip(self, tip_id):
@@ -278,6 +281,9 @@ class App:
             "notes": {"text": "Take notes (while recording)" if not rec.recording
                       else f"Notes · {n} line{'s' if n != 1 else ''}" if (n := notes.line_count(self._notes_text)) else "Take notes",
                       "hotkey": fmt_hotkey(cfg["hotkey_notes"]) if rec.recording else None},
+            "docadd": {"text": "Add documents" if rec.recording else "Add documents (while recording)",
+                       "hotkey": fmt_hotkey(cfg["hotkey_documents"]) if rec.recording else None},
+            "doclist": {"text": self._doclist_tip(), "hotkey": None},
             "mic": {"text": "Unmute microphone" if rec.mic_muted else "Mute microphone", "hotkey": fmt_hotkey(cfg["hotkey_mute_mic"])},
             "sys": {"text": "Unmute system audio" if rec.sys_muted else "Mute system audio", "hotkey": fmt_hotkey(cfg["hotkey_mute_system"])},
             "perm": {"text": "Restart to apply the permission", "hotkey": None} if self._restart_pending()
@@ -287,6 +293,32 @@ class App:
             "quit": {"text": "Quit", "hotkey": None},
             "tab": {"text": "Show bar", "hotkey": None},
         }.get(tip_id)
+
+    def _doclist_tip(self) -> str:
+        if not self.rec.recording:
+            return "Documents (while recording)"
+        docs = documents.load(self.rec.dir)
+        ready = sum(1 for d in docs if d.get("status") == "ready")
+        return "Documents" if not docs else f"Documents · {len(docs)}" if ready == len(docs) else f"Documents · {ready} of {len(docs)} ready"
+
+    def overlay_docs(self) -> dict:
+        """The list in the documents popup: what was added to this recording, and how far reading each one is."""
+        out = []
+        for d in sorted(documents.load(self.rec.dir) if self.rec.recording else [], key=lambda d: d["added_at"]):
+            s = d.get("status")
+            status = ({"k": "wait", "text": "Waiting"} if s == "queued" else
+                      {"k": "run", "text": f"Reading… {round(d.get('progress', 0) * 100)}%" if d.get("progress", 0) > 0 else "Reading…"} if s == "reading" else
+                      {"k": "ok", "text": "Ready"} if s == "ready" else
+                      {"k": "warn", "text": "No text found"} if s == "nolext" else {"k": "err", "text": "Couldn't read"})
+            what = d.get("note") if s in ("failed", "nolext") and d.get("note") else d.get("detail") or documents.label(d)
+            out.append({"id": d["id"], "name": d["stored"], "kind": d["kind"], "meta": f"{what} · added {notes.stamp(d['added_at'])[1:-1]}",
+                        "status": status, "pct": d.get("progress", 0)})
+        return {"docs": out}
+
+    def overlay_docs_action(self, act: str, doc_id: str) -> None:
+        if act == "delete" and self.rec.dir is not None:
+            documents.delete(self.rec.dir, doc_id)
+            self._push_overlay()
 
     def overlay_notes_info(self) -> dict:
         return {"timeKey": self.cfg["hotkey_notes_time"], "timeLabel": fmt_hotkey(self.cfg["hotkey_notes_time"])}
@@ -359,6 +391,7 @@ class App:
             {
                 self.cfg["hotkey_screenshot"]: lambda: self.shot(None),
                 self.cfg["hotkey_notes"]: lambda: self.toggle_notes(None),
+                self.cfg["hotkey_documents"]: lambda: self.add_documents(None),
                 self.cfg["hotkey_record"]: lambda: self.toggle(None),
                 self.cfg["hotkey_mute_mic"]: lambda: self.toggle_mic(None),
                 self.cfg["hotkey_mute_system"]: lambda: self.toggle_system(None),
@@ -388,6 +421,7 @@ class App:
             else:
                 if self._overlay is not None:
                     self._overlay.close_notes()  # saves the last keystrokes (notes.txt is read when the summary is written)
+                    self._overlay.close_docs()
                 d = self.rec.stop()
                 self._run_pipeline(d)
         except Exception as e:
@@ -425,6 +459,61 @@ class App:
             return
         self._overlay.toggle_notes()
         self._push_overlay()
+
+    def add_documents(self, _):
+        """Pick files to give the summary more context. They are copied into the meeting folder and read in the background."""
+        if not self.rec.recording or self.rec.dir is None:
+            return
+        meeting = self.rec.dir
+        paths, ocr_on = self._choose_documents(bool(self.cfg["documents_ocr"]))
+        if not paths:
+            return
+        if ocr_on != bool(self.cfg["documents_ocr"]):
+            try:
+                config.set_value("documents_ocr", ocr_on)  # the box starts the way you left it
+                self._reload_cfg()
+            except Exception:
+                traceback.print_exc()
+        new, skipped = documents.add(meeting, [Path(p) for p in paths], int(time.time() - self.started), ocr_on)
+        if skipped:
+            notify("Meeting Transcriber", "Some documents were not added", "; ".join(skipped)[:220])
+        if new:
+            self.docs.submit(meeting, new)
+        self._push_overlay()
+
+    def _choose_documents(self, ocr_default: bool) -> tuple[list[str], bool]:
+        """The file chooser (several files at once) with a "Read text in images (OCR)" box under the list."""
+        from AppKit import NSButton, NSColor, NSFont, NSOpenPanel, NSTextField, NSView
+        from Foundation import NSMakeRect
+
+        if self._overlay is not None:
+            self._overlay.close_popups()  # the bar's popups float above the chooser and would block parts of it
+        bring_to_front()
+        panel = NSOpenPanel.openPanel()
+        panel.setLevel_(100)  # above the bar and its popups (they float at level 25 and 26)
+        panel.setCanChooseFiles_(True)
+        panel.setCanChooseDirectories_(False)
+        panel.setAllowsMultipleSelection_(True)
+        panel.setPrompt_("Add")
+        panel.setAllowedFileTypes_(sorted(e.lstrip(".") for e in documents.SUPPORTED))
+        box = NSView.alloc().initWithFrame_(NSMakeRect(0, 0, 640, 64))
+        check = NSButton.checkboxWithTitle_target_action_("Read text in images (OCR)", None, None)
+        check.setState_(1 if ocr_default else 0)
+        check.setFrame_(NSMakeRect(20, 40, 600, 20))
+        hint = NSTextField.wrappingLabelWithString_("Uses Apple's text recognition on your Mac. Good for scans and for pictures inside documents; slower for big PDFs.")
+        hint.setFont_(NSFont.systemFontOfSize_(11))
+        hint.setTextColor_(NSColor.secondaryLabelColor())
+        hint.setFrame_(NSMakeRect(38, 6, 580, 32))
+        box.addSubview_(check)
+        box.addSubview_(hint)
+        panel.setAccessoryView_(box)
+        try:
+            panel.setAccessoryViewDisclosed_(True)
+        except Exception:
+            pass
+        if panel.runModal() != 1:
+            return [], ocr_default
+        return [str(u.path()) for u in panel.URLs()], check.state() == 1
 
     def _choose_meeting(self, message: str, button: str) -> Path | None:
         """Ask for a meeting folder (a folder picker starting in the meetings folder)."""
@@ -468,13 +557,17 @@ class App:
         prompt = self.prompt
         cfg0 = self._reload_cfg()
         self.jobs.labels = (cfg0["my_label"], cfg0["others_label"])
+        reading = not (summarize_only or transcribe_only) and self.docs.pending(d) > 0  # a recording that has just stopped
+        n_docs = len([x for x in documents.load(d) if x.get("status") in ("ready", "queued", "reading")]) if cfg0["use_documents"] else 0
         job = self.jobs.add(
             d,
             summarize=bool(cfg0["auto_summarize"] or summarize_only),  # (transcribing a meeting follows the auto-summarize setting)
             transcribe=not (summarize_only and transcript_file(d).exists()),
             recorded=not (summarize_only or transcribe_only),  # an existing meeting: no "Recorded" step
             diarize=bool(cfg0["diarize"]),  # "Telling speakers apart" is a part of Transcribing
-            notes=notes_lines(d, cfg0),  # the summary also reads the notes you took (shown under "Summarizing")
+            notes=notes_lines(d, cfg0),
+            documents=n_docs,
+            reading=reading,  # the summary also reads the notes you took (shown under "Summarizing")
         )
         on_main(self._open_status)
 
@@ -487,6 +580,8 @@ class App:
                 try:
                     cfg = self._reload_cfg()
                     self.jobs.begin(job)
+                    if reading:  # the summary needs the documents: wait for the ones still being read
+                        self.docs.wait(d, lambda done, total: say(progress.reading_documents(done, total)))
                     if transcribe_only:
                         new_dir, out = transcribe_existing(d, cfg, prompt, progress=say)
                     elif summarize_only:

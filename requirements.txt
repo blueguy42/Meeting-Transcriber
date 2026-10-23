@@ -8,3 +8,6 @@ mcp
 pypandoc_binary
 pyobjc-framework-WebKit
 pyobjc-framework-AVFoundation
+pyobjc-framework-Vision
+python-pptx
+openpyxl

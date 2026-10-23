@@ -23,6 +23,11 @@
   .btn.muted { background: rgba(255,69,58,.14); }
   .btn.muted.hov { background: rgba(255,69,58,.24); }
   .btn svg { display: block; }
+  /* the documents button: how many documents (blue: all read), or how many of them are read so far (amber) */
+  .dbadge { position: absolute; top: 1px; right: -5px; min-width: 18px; height: 18px; padding: 0 3px; box-sizing: border-box; border-radius: 9px; display: none;
+    align-items: center; justify-content: center; font-size: 10px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap;
+    background: #64a8ff; color: #0b1e33; border: 2px solid #1e1f24; }  /* a circle for one digit, a pill only as wide as "2/3" needs */
+  .dbadge.busy { background: #ffb340; color: #3a2400; }
   .btn { position: relative; }
   .ndot { position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%; background: #64a8ff; border: 2px solid #1e1f24; box-sizing: content-box; display: none; }
   .slash { display: none; }
@@ -86,11 +91,18 @@
     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h7M9 16h5"/></svg>
     <span class="ndot" id="ndot"></span>
   </button>
+  <button class="btn off" id="docadd" data-tip="docadd" aria-label="Add documents">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.2 11.3l-8.1 8.1a4.6 4.6 0 0 1-6.5-6.5l8.5-8.5a3.1 3.1 0 0 1 4.4 4.4l-8.5 8.5a1.6 1.6 0 0 1-2.2-2.2l7.7-7.7"/></svg>
+  </button>
+  <button class="btn off" id="doclist" data-tip="doclist" aria-label="Documents">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M10 3h7l3 3v12H10z"/><path d="M17 3v4h3"/><path d="M6 7v14h11"/></svg>
+    <span class="dbadge" id="docdot"></span>
+  </button>
+  <div class="div"></div>
   <button class="btn warn" id="perm" data-tip="perm" aria-label="Permissions needed" style="display:none">
     <svg id="perm-warn" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>
     <svg id="perm-restart" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="display:none"><path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v5h-5"/></svg>
   </button>
-  <div class="div"></div>
   <button class="btn" id="more" data-tip="more" aria-label="More">
     <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="12" cy="19" r="1.7"/></svg>
   </button>
@@ -154,7 +166,7 @@
     } else {
       setRing("#64a8ff", Math.max(0.03, job.progress), "#3a3b42");
       $("glyph").innerHTML = job.stage === "transcribing" ? GLYPHS.wave : job.stage === "queued" ? GLYPHS.clock : GLYPHS.doc;
-      timer = job.stage === "transcribing" ? Math.round(job.progress * 100) + "%" : job.stage === "queued" ? "Waiting" : job.stage === "summarizing" ? "Writing" : "Saving";
+      timer = job.stage === "transcribing" ? Math.round(job.progress * 100) + "%" : job.stage === "queued" ? "Waiting" : job.stage === "reading" ? "Reading" : job.stage === "summarizing" ? "Writing" : "Saving";
       label = "Show processing status";
     }
     $("rec").setAttribute("aria-label", label);
@@ -175,6 +187,12 @@
     $("notes").classList.toggle("off", !rec);
     $("notes").classList.toggle("active", !!s.notesOpen);  // lit while its panel is open
     $("notes").setAttribute("aria-disabled", rec ? "false" : "true");
+    for (const id of ["docadd", "doclist"]) { $(id).classList.toggle("off", !rec); $(id).setAttribute("aria-disabled", rec ? "false" : "true"); }
+    $("doclist").classList.toggle("active", !!s.docsOpen);  // lit while its list is open
+    const db = $("docdot"), total = s.docsCount || 0, ready = s.docsReady || 0;
+    db.style.display = rec && total > 0 ? "flex" : "none";  // this meeting has documents
+    db.textContent = ready === total ? String(total) : ready + "/" + total;
+    db.classList.toggle("busy", ready !== total);
     $("ndot").style.display = rec && s.notesLines > 0 ? "block" : "none";  // this meeting has notes
     for (const [id, muted, what] of [["mic", s.micMuted, "microphone"], ["sys", s.sysMuted, "system audio"]]) {
       $(id).classList.toggle("muted", !!muted);
@@ -212,6 +230,8 @@
   };
   $("shot").onclick = () => { hideTip(); if (state.recording) post({ op: "shot" }); };
   $("notes").onclick = () => { hideTip(); if (state.recording) post({ op: "notes" }); };
+  $("docadd").onclick = () => { hideTip(); if (state.recording) post({ op: "docs_add" }); };
+  $("doclist").onclick = () => { hideTip(); if (state.recording) post({ op: "docs" }); };
   $("mic").onclick = () => { hideTip(); post({ op: "mute_mic" }); };
   $("sys").onclick = () => { hideTip(); post({ op: "mute_system" }); };
   $("perm").onclick = () => { hideTip(); post({ op: "perm" }); };

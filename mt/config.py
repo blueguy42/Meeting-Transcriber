@@ -39,6 +39,11 @@ DEFAULTS = {
     "hotkey_notes": "<ctrl>+<alt>+t",
     "hotkey_notes_time": "<cmd>+t",
     "use_notes": True,
+    # Meeting documents (the paperclip button): the shortcut that opens the file chooser, whether Claude gets them when
+    # summarizing, and whether the chooser's "Read text in images (OCR)" box starts ticked.
+    "hotkey_documents": "<ctrl>+<alt>+d",
+    "use_documents": True,
+    "documents_ocr": True,
     # Screenshot size as a percentage of the captured screen's real pixel width (100 = full size).
     "screenshot_scale": 50,
     "auto_summarize": True,

@@ -53,6 +53,11 @@ class Settings(unittest.TestCase):
         with self.assertRaises(ValueError):
             settings_api._check("use_notes", "yes")
         self.assertTrue(settings_api._check("use_notes", False) is False)
+        self.assertEqual(settings_api._check("hotkey_documents", "<ctrl>+<alt>+d"), "<ctrl>+<alt>+d")
+        self.assertIs(settings_api._check("documents_ocr", True), True)
+        with self.assertRaises(ValueError):
+            settings_api._check("use_documents", "yes")
+        self.assertTrue(config.defaults()["use_documents"] and config.defaults()["documents_ocr"])
         self.assertEqual(config.defaults()["hotkey_notes"], "<ctrl>+<alt>+t")
         self.assertTrue(config.defaults()["use_notes"])
 

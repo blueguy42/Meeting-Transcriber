@@ -16,6 +16,10 @@ def transcribing(label: str, fraction: float | None = None, bursts: int | None =
     return f"Transcribing {label}… {fraction:.0%}"
 
 
+def reading_documents(done: int, total: int) -> str:
+    return f"Reading documents… {done} of {total}"
+
+
 def diarizing(percent: int) -> str:
     return f"Telling speakers apart… {percent}%"
 
@@ -37,6 +41,9 @@ SPEAKERS_FAILED = "Speakers were not told apart: "  # followed by the reason
 def parse(msg: str, labels: list[str]) -> dict | None:
     """-> {"kind": "transcribing", "label": ..., "fraction": 0..1 | None}, {"kind": "summarizing"}, {"kind": "docx"},
     {"kind": "diarizing", "fraction": 0..1 | None, "note": str}, {"kind": "diarized", "failed": bool} or None."""
+    m = re.fullmatch(r"Reading documents… (\d+) of (\d+)", msg)
+    if m:
+        return {"kind": "readdocs", "done": int(m.group(1)), "total": int(m.group(2))}
     if msg.startswith(SPEAKERS_FAILED):
         return {"kind": "diarized", "failed": True}
     m = re.fullmatch(r"Telling speakers apart… (\d+)%", msg)

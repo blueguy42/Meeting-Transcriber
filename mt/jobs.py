@@ -46,16 +46,24 @@ class Tracker:
         self._ids = itertools.count(1)
 
     # ---- worker side
-    def add(self, folder: Path, summarize: bool, transcribe: bool = True, recorded: bool = True, notes: int = 0, diarize: bool = False) -> int:
+    def add(self, folder: Path, summarize: bool, transcribe: bool = True, recorded: bool = True, notes: int = 0, diarize: bool = False,
+            documents: int = 0, reading: bool = False) -> int:
         steps = []
         if recorded:
             steps.append(_step("recorded", "Recorded", "done"))
+        if reading:  # documents are still being read when the recording stops: the summary waits for them
+            steps.append(_step("readdocs", "Reading documents"))
         if transcribe:
             steps.append(_step("transcribe", "Transcribing"))
         if summarize:
             steps.append(_step("summarize", "Summarizing"))
-            if notes:  # the summary will use the notes you took: say so under the step
-                steps[-1]["detail"] = f"with your notes ({notes} line{'s' if notes != 1 else ''})"
+            lines = []  # what the summary will use besides the transcript: say so under the step
+            if notes:
+                lines.append(f"with your notes ({notes} line{'s' if notes != 1 else ''})")
+            if documents:
+                lines.append(f"{'and ' if notes else 'with '}{documents} document{'s' if documents != 1 else ''}")
+            if lines:
+                steps[-1]["detail"] = "\n".join(lines)
         steps.append(_step("save", "Saving files"))
         job = {"id": next(self._ids), "folder": str(folder), "name": display_name(folder.name), "state": "queued",
                "steps": steps, "diarize": bool(diarize and transcribe), "out": None, "error": "", "seen": False, "finished": 0.0}
@@ -108,6 +116,10 @@ class Tracker:
                     child.update(state="done", fraction=1.0, sub="Skipped" if ev["failed"] else "")
                 else:
                     child.update(state="now", fraction=ev["fraction"], sub=ev["note"] or f"{round(ev['fraction'] * 100)}%")
+            elif ev["kind"] == "readdocs":
+                step = self._advance(job, "readdocs")
+                if step is not None:
+                    step["sub"] = f"{ev['done']} of {ev['total']}"
             elif ev["kind"] == "summarizing":
                 self._advance(job, "summarize")
             elif ev["kind"] == "docx":
@@ -188,6 +200,9 @@ class Tracker:
 
     def _weights(self, job: dict) -> dict:
         w = dict(WEIGHTS)
+        if any(s["key"] == "readdocs" for s in job["steps"]):
+            w["transcribe"] -= 0.05
+            w["readdocs"] = 0.05
         if not any(s["key"] == "summarize" for s in job["steps"]):
             w["transcribe"] += w.pop("summarize")
         return w
@@ -213,4 +228,4 @@ class Tracker:
         if job["state"] in ("done", "failed", "queued"):
             return job["state"]
         now = next((s["key"] for s in job["steps"] if s["state"] == "now"), "transcribe")
-        return {"transcribe": "transcribing", "summarize": "summarizing", "save": "saving"}.get(now, "transcribing")
+        return {"readdocs": "reading", "transcribe": "transcribing", "summarize": "summarizing", "save": "saving"}.get(now, "transcribing")

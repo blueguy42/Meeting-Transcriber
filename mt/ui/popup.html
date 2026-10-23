@@ -46,6 +46,33 @@
   .b.main { background: #f2f2f5; color: #1e1f24; font-weight: 600; }
   .b.main.hov { background: #fff; }
   .note { font-size: 12px; color: #a9aab4; margin-top: 6px; line-height: 1.35; }
+  /* the documents list */
+  .docs { width: 380px; padding: 12px 14px; display: flex; flex-direction: column; }
+  .dh { display: flex; align-items: center; justify-content: space-between; margin: -2px -5px 6px 0; flex: none; }
+  .dh b { font-size: 13px; font-weight: 600; }
+  .dh .n { font-size: 12px; color: #a9aab4; margin-left: 8px; font-weight: 400; }
+  .rows { flex: 1; min-height: 0; overflow-y: scroll; margin-right: -10px; }  /* the 5px scrollbar gutter is always there: the rows end 5px past the card's padding, like the close button */
+  .rows::-webkit-scrollbar { width: 5px; }
+  .rows::-webkit-scrollbar-track { background: transparent; }
+  .rows::-webkit-scrollbar-thumb { background: rgba(255,255,255,.3); border-radius: 3px; }
+  .dr { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0 8px 6px; border-radius: 9px; }
+  .b, .x, .tr, .row { cursor: pointer; }
+  .dr + .dr { margin-top: 2px; }
+  .ft { flex: none; width: 30px; height: 36px; border-radius: 6px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px; box-sizing: border-box; font: 700 9px -apple-system, sans-serif; letter-spacing: .02em; }
+  .ft.pdf { background: rgba(255,107,97,.18); color: #ff8a80; } .ft.docx { background: rgba(100,168,255,.2); color: #9dc0ff; } .ft.pptx { background: rgba(255,179,64,.2); color: #ffb340; }
+  .ft.xlsx { background: rgba(48,209,88,.18); color: #7be495; } .ft.txt { background: rgba(255,255,255,.12); color: #c9cad2; } .ft.img { background: rgba(191,130,255,.2); color: #d1a8ff; }
+  .dm { flex: 1; min-width: 0; }
+  .dn { font-size: 13px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dd { font-size: 12px; color: #a9aab4; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pb { height: 3px; border-radius: 2px; background: rgba(255,255,255,.14); margin-top: 6px; overflow: hidden; } .pb i { display: block; height: 100%; background: #64a8ff; border-radius: 2px; }
+  .ds { flex: none; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #a9aab4; white-space: nowrap; padding-top: 2px; }
+  .ds.ok { color: #7be495; } .ds.warn { color: #ffb340; } .ds.err { color: #ff8a80; }
+  .tr { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #a9aab4; display: flex; align-items: center; justify-content: center; cursor: pointer; margin-top: -1px; }
+  .tr.hov { background: rgba(255,69,58,.2); color: #ff6b61; }
+  .dfoot { margin-top: 8px; flex: none; }
+  .dfoot .b { width: 100%; flex: none; }
+  .empty { padding: 22px 10px 14px; text-align: center; color: #a9aab4; font-size: 12.5px; line-height: 1.45; }
+  .empty b { display: block; color: #fff; font-size: 13px; margin-bottom: 4px; }
   button, button:focus, button:focus-visible, .row, .row:focus, .row:focus-visible { outline: none; }
 </style>
 </head>
@@ -99,7 +126,7 @@
       const kids = (st.children || []).map((c) =>
         '<div class="kid ' + c.state + '">' + (c.state === "done" ? CHECK_S : c.state === "now" ? '<span class="spin" style="width:11px;height:11px;border-width:2px"></span>' : '<span class="ring" style="width:11px;height:11px"></span>') +
         "<span>" + esc(c.label) + '</span><span class="r">' + esc(c.sub || "") + "</span></div>").join("");
-      return '<div class="step ' + st.state + '"><span class="ic">' + icon(st.state) + "</span><div>" + esc(st.label) + (st.sub ? "<small>" + esc(st.sub) + "</small>" : st.detail && st.state !== "done" ? "<small>" + esc(st.detail) + "</small>" : "") + "</div></div>" + kids;
+      return '<div class="step ' + st.state + '"><span class="ic">' + icon(st.state) + "</span><div>" + esc(st.label) + (st.sub ? "<small>" + esc(st.sub) + "</small>" : st.detail && st.state !== "done" ? "<small>" + esc(st.detail).replace(/\n/g, "<br>") + "</small>" : "") + "</div></div>" + kids;
     }).join("");
   }
 
@@ -117,6 +144,47 @@
       '<div class="note">Meetings are processed one at a time. You can record while they run.</div></div>';
   }
 
+  const TRASH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>';
+  const WARN = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4l9 16H3z"/><path d="M12 10v4M12 17v.5"/></svg>';
+  const KIND = { pdf: "PDF", docx: "DOCX", pptx: "PPTX", xlsx: "XLSX", txt: "TXT", img: "IMG" };
+
+  function renderDocs(s) {
+    const rows = s.docs.map((d) => {
+      const st = d.status, icon = st.k === "ok" ? CHECK_S : st.k === "run" ? '<span class="spin" style="width:11px;height:11px;border-width:2px"></span>' : st.k === "wait" ? "" : WARN;
+      const bar = st.k === "run" ? '<div class="pb"><i style="width:' + Math.round((d.pct || 0) * 100) + '%"></i></div>' : "";
+      return '<div class="dr" data-id="' + esc(d.id) + '"><div class="ft ' + esc(d.kind) + '">' + (KIND[d.kind] || "") + '</div><div class="dm"><div class="dn">' + esc(d.name) + '</div><div class="dd">' + esc(d.meta) + "</div>" + bar +
+        '</div><div class="ds ' + (st.k === "run" || st.k === "wait" ? "" : st.k) + '">' + icon + "<span>" + esc(st.text) + '</span></div><button class="tr" data-act="docs_delete" data-id="' + esc(d.id) + '" aria-label="Delete ' + esc(d.name) + '">' + TRASH + "</button></div>";
+    }).join("");
+    const body = s.docs.length ? rows : '<div class="empty"><b>No documents yet</b>Add an agenda, slides or a report to give Claude more context for the summary.</div>';
+    wrap.style.flexDirection = s.side === "right" ? "row-reverse" : "row";
+    return '<div class="card docs" style="max-height:' + Math.max(160, Math.floor(s.maxH || 420)) + 'px"><div class="dh"><div><b>Documents</b><span class="n">' + s.docs.length + ' added</span></div><button class="x" data-act="docs_close" aria-label="Close documents">' + CLOSE + "</button></div>" +
+      '<div class="rows">' + body + '</div><div class="dfoot"><button class="b" data-act="docs_add">Add documents…</button></div></div>';
+  }
+
+  // The list is refreshed every second while files are being read. Redrawing it would replace the very button the pointer is
+  // pressing (a click needs the same element on mouse-down and mouse-up), so rows are updated in place unless the set of rows changed.
+  function patchDocs(s) {
+    const card = wrap.querySelector(".card.docs");
+    if (!card) return false;
+    const rows = [...card.querySelectorAll(".dr")];
+    if (rows.length !== s.docs.length || rows.some((r, i) => r.dataset.id !== s.docs[i].id || (s.docs[i].status.k === "run" && !r.querySelector(".pb")))) return false;
+    rows.forEach((r, i) => {
+      const d = s.docs[i], st = d.status;
+      r.querySelector(".dd").textContent = d.meta;
+      const ds = r.querySelector(".ds");
+      ds.className = "ds " + (st.k === "run" || st.k === "wait" ? "" : st.k);
+      const icon = st.k === "ok" ? CHECK_S : st.k === "run" ? '<span class="spin" style="width:11px;height:11px;border-width:2px"></span>' : st.k === "wait" ? "" : WARN;
+      const html = icon + "<span>" + esc(st.text) + "</span>";
+      if (ds.dataset.h !== html) { ds.innerHTML = html; ds.dataset.h = html; }
+      const pbox = r.querySelector(".pb"), pb = r.querySelector(".pb i");
+      if (st.k !== "run" && pbox) pbox.remove();  // finished: the progress bar goes
+      else if (pb) pb.style.width = Math.round((d.pct || 0) * 100) + "%";
+    });
+    card.querySelector(".dh .n").textContent = s.docs.length + " added";
+    card.style.maxHeight = Math.max(160, Math.floor(s.maxH || 420)) + "px";
+    return true;
+  }
+
   function setSub(open) {
     if (open === subOpen) return;
     subOpen = open;
@@ -126,11 +194,23 @@
     postRects();
   }
 
+  let lastJson = "";
   window.render = function (s) {
+    if (s.kind === "docs" || s.kind === "status") {
+      const json = JSON.stringify(s);
+      if (json === lastJson && spec && spec.kind === s.kind) { report(); return; }  // nothing changed: leave the buttons alone
+      lastJson = json;
+      if (s.kind === "docs" && spec && spec.kind === "docs" && patchDocs(s)) { spec = { ...s, fresh: false }; report(); return; }
+    } else {
+      lastJson = "";
+    }
     if (s.fresh || s.kind !== "menu") subOpen = false;
     spec = { ...s, fresh: false };
     hov = null;
-    wrap.innerHTML = s.kind === "tip" ? renderTip(s) : s.kind === "menu" ? renderMenu(s) : renderStatus(s);
+    const scroll = wrap.querySelector(".rows"), keep = scroll ? scroll.scrollTop : 0;
+    wrap.innerHTML = s.kind === "tip" ? renderTip(s) : s.kind === "menu" ? renderMenu(s) : s.kind === "docs" ? renderDocs(s) : renderStatus(s);
+    const again = wrap.querySelector(".rows");
+    if (again && keep) again.scrollTop = keep;  // the list is redrawn every second while files are being read: stay where you were
     report();
   };
 
@@ -141,7 +221,8 @@
     postRects();
   }
 
-  window.addEventListener("resize", () => postRects());  // the panel was resized to fit: positions changed
+  window.addEventListener("resize", () => postRects());
+  wrap.addEventListener("scroll", () => postRects(), true);  // scrolling the documents list moves the rows  // the panel was resized to fit: positions changed
 
   // What Python needs to know about this page: for the menu, which parts are really menu (everywhere else a click
   // must reach the app behind); for any page, where the rows and buttons are, so it can tell which one the pointer
@@ -157,11 +238,16 @@
       });
     }
     const rows = [];
-    wrap.querySelectorAll(".row, .b, .x").forEach((el, i) => {
+    wrap.querySelectorAll(".row, .b, .x, .tr").forEach((el, i) => {
       el.dataset.hi = i;
       const card = el.closest(".card");
       if (!card || getComputedStyle(card).visibility === "hidden") return;
       const r = el.getBoundingClientRect();
+      const box = el.closest(".rows");
+      if (box) {  // a row scrolled out of the list can not be hovered or clicked
+        const b = box.getBoundingClientRect();
+        if (r.bottom < b.top + 2 || r.top > b.bottom - 2) return;
+      }
       rows.push({ i, x: r.x, y: r.y, w: r.width, h: r.height });
     });
     post({ op: "rects", rects: list, rows });
@@ -179,8 +265,9 @@
   };
 
   wrap.addEventListener("click", (e) => {
-    const row = e.target.closest(".row, .b, .x");
+    const row = e.target.closest(".row, .b, .x, .tr");
     if (!row || !spec) return;
+    if (spec.kind === "docs") { if (row.dataset.act) post({ op: row.dataset.act, id: row.dataset.id || null }); return; }
     if (row.dataset.sub) { setSub(true); return; }
     if (spec.kind === "menu" && row.dataset.id) post({ op: "menu_click", id: row.dataset.id });
     else if (row.dataset.act) post({ op: "status_" + row.dataset.act, id: row.dataset.job ? Number(row.dataset.job) : null });
