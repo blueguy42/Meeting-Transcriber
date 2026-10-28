@@ -15,6 +15,7 @@ import threading
 # Set before any library is imported: they read these when they load.
 os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")  # the "Fetching 4 files" bar, one per model load
 os.environ.setdefault("TQDM_DISABLE", "1")
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")  # plain HTTP downloads of the Whisper model resume reliably; xet ones stall silently
 # The resource tracker is a separate process that warns about the semaphores of a model-loading pool at exit.
 os.environ["PYTHONWARNINGS"] = ",".join(filter(None, [os.environ.get("PYTHONWARNINGS"), "ignore:resource_tracker:UserWarning"]))
 

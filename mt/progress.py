@@ -31,6 +31,10 @@ def downloading_model(n: int) -> str:
     return f"Downloading speaker model {n} of 2…"
 
 
+def downloading_whisper(mb: int) -> str:
+    return f"Downloading the Whisper model… {mb} MB"
+
+
 def speakers_found(label: str, count: int) -> str:
     return f"Found {count} {label} speaker(s)" if count > 1 else f"{label}: one speaker"
 
@@ -40,7 +44,10 @@ SPEAKERS_FAILED = "Speakers were not told apart: "  # followed by the reason
 
 def parse(msg: str, labels: list[str]) -> dict | None:
     """-> {"kind": "transcribing", "label": ..., "fraction": 0..1 | None}, {"kind": "summarizing"}, {"kind": "docx"},
-    {"kind": "diarizing", "fraction": 0..1 | None, "note": str}, {"kind": "diarized", "failed": bool} or None."""
+    {"kind": "diarizing", "fraction": 0..1 | None, "note": str}, {"kind": "diarized", "failed": bool}, {"kind": "whisper", "mb": int} (the speech model is being downloaded) or None."""
+    m = re.fullmatch(r"Downloading the Whisper model… (\d+) MB", msg)
+    if m:
+        return {"kind": "whisper", "mb": int(m.group(1))}
     m = re.fullmatch(r"Reading documents… (\d+) of (\d+)", msg)
     if m:
         return {"kind": "readdocs", "done": int(m.group(1)), "total": int(m.group(2))}

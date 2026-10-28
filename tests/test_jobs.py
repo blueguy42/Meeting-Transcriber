@@ -97,6 +97,20 @@ class Flow(unittest.TestCase):
         t.begin(j)  # (queued behind the first one, but begin() works on any job)
         self.assertEqual(len(t.snapshot()[1]["steps"][1]["children"]), 2)
 
+    def test_downloading_the_speech_model_comes_first(self):
+        t = Tracker(("Me", "Others"))
+        i = t.add(Path("/m/2026-10-20_1800"), summarize=True)
+        t.begin(i)
+        kids = lambda: t.snapshot()[0]["steps"][1]["children"]
+        self.assertEqual(progress.parse(progress.downloading_whisper(412), ["Me", "Others"]), {"kind": "whisper", "mb": 412})
+        t.feed(i, progress.downloading_whisper(0))
+        t.feed(i, progress.downloading_whisper(412))
+        self.assertEqual([(c["label"], c["state"], c["sub"]) for c in kids()],
+                         [("Downloading model", "now", "412 MB"), ("Your mic", "todo", "Waiting"), ("System audio", "todo", "Waiting")])
+        self.assertEqual(t.snapshot()[0]["progress"], 0.0)  # the download does not move the ring
+        t.feed(i, progress.transcribing("Me", 0.5))
+        self.assertEqual([(c["state"], c["sub"]) for c in kids()], [("done", ""), ("now", "50%"), ("todo", "Waiting")])
+
     def test_reading_documents_and_the_summary_lines(self):
         t = Tracker(("Me", "Others"))
         i = t.add(Path("/m/2026-10-20_1700"), summarize=True, notes=4, documents=3, reading=True)

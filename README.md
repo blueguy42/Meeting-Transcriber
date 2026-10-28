@@ -226,6 +226,8 @@ on the call. Press the shortcut again, or the × on the panel, to close it. Noth
 - **Claude reads your notes** together with the transcript, with every summary style (also your own), and makes sure what you
   wrote down is covered: decisions, names, numbers, action items and questions. The summary does not label things as "from
   your notes"; it is one document. Summarizing a meeting again uses its notes too.
+- Notes that read like to-dos for you ("try…", "TODO") become action items. The times you type can be a few minutes off, so
+  Claude matches each note to the right moment by what was said.
 - Don't want that? Turn off *Use my notes when summarizing* in Settings → Summaries. Notes are still saved.
 
 <p align="center">
@@ -286,14 +288,21 @@ documents*) and saving. When it is done you get **Summary** and **Folder** butto
 You can start a new recording right away; a blue badge counts the meetings still being processed, and they are handled **one
 at a time**. The panel also shows meetings you re-process from the menu (**Transcribe a meeting…** has no "Recorded" step).
 
+The very first time (or if a half-finished download is found), the app first checks that the speech model is on your Mac and
+downloads it if not. The panel shows a **Downloading model** line with how many MB have arrived, and transcribing starts when it
+is done. If nothing arrives for 5 minutes you are told to check your internet connection.
+
 <p align="center">
-  <img src="docs/screenshots/processing-queue.png" alt="Two meetings in the queue, transcribing an existing meeting, summarizing an existing meeting" width="800">
+  <img src="docs/screenshots/processing-queue.png" alt="Two meetings in the queue, transcribing an existing meeting, summarizing an existing meeting, downloading the speech model" width="800">
 </p>
 
 ### Summary styles
 
 A **summary style** is simply a set of instructions for Claude. Two come built in:
-- **default**: overview, decisions, action items, open questions, discussion points and what was on screen.
+- **default**: overview, decisions, action items, open questions, discussion points and what was on screen. Decisions say how
+  firm they were (*decided*, *leaning*, *proposed*); action items are a table (owner, task, due, status, time) with relative
+  dates like "Friday" turned into real dates. Names are taken from what is visible on screen, and anything unclear in the
+  recording is marked instead of guessed.
 - **action-items-only**: just the decisions and a table of action items.
 
 You can edit a style, create your own, rename or delete your own, or reset a built-in one in **Settings → Summary styles**.
@@ -359,7 +368,7 @@ immediately; other changes apply from the next recording.
 |---|---|---|
 | Speech recognition → Language | Detects Indonesian or English as people speak, or forces one | automatic |
 | Speech recognition → Model | "Large v3" is the most accurate; "turbo" is about 4× faster but slightly less accurate | large v3 |
-| Speech recognition → Names and terms | Names and jargon to spell correctly, e.g. *Budi, Dina, Tokopedia* | empty |
+| Speech recognition → Names and terms | Names and jargon to spell correctly, e.g. *Budi, Dina, Tokopedia*. Also given to Claude so the summary uses the same spellings | empty |
 | Speakers → Other people | Numbers the other people on the call (Others 1, Others 2…) by voice. Runs on your Mac | on |
 | Speakers → Number of people | Work it out automatically, or set it if the app merges or splits someone | automatic |
 | Labels | The names shown in the transcript for you and for everyone else (must differ) | Me / Others |
@@ -452,6 +461,7 @@ a notification and the previous settings stay in effect.
 
 | Problem | What to do |
 |---|---|
+| "Downloading model" stays at the same number of MB | The app stops after 5 minutes without progress and says so. Check your internet connection, delete the model folder it names (under `~/.cache/huggingface`), and transcribe again |
 | The bar does not appear after launch | Read `~/Library/Logs/MeetingTranscriber.log` |
 | "Claude Code CLI not found" | Install Claude Code, or set its path under Settings → Summaries → Claude |
 | The notes, screenshot or document buttons are greyed out | They only work while recording. Start a recording first |
@@ -481,6 +491,10 @@ a notification and the previous settings stay in effect.
 | Summaries | the Claude Code CLI (`claude -p`), not a Python package |
 
 Python packages are listed in [`requirements.txt`](requirements.txt).
+
+The Whisper model is fetched from Hugging Face the first time. `transcribe.ensure_model` checks that the weights file is present and not empty (an
+interrupted download used to make transcribing hang), downloads it with progress shown in the panel, and gives up after 5 minutes
+without new bytes. Downloads use plain HTTP (`HF_HUB_DISABLE_XET=1`, set in `mt/log.py`) because they resume reliably.
 
 ### Build and test
 `build_app.sh` builds the `sck-audio` Swift helper, creates `.venv` and installs `requirements.txt`, compiles a small native
@@ -592,7 +606,7 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 | `model` | `mlx-community/whisper-large-v3-mlx` | `…-large-v3-turbo` is ~4× faster, slightly less accurate |
 | `language` | `"auto"` | per-burst detection, or force `"id"` / `"en"` |
 | `allowed_languages` | `["id", "en"]` | languages auto-detection may pick (config file only) |
-| `vocabulary` | `[]` | names/terms to spell correctly |
+| `vocabulary` | `[]` | names/terms to spell correctly (in the transcript and in the summary) |
 | `diarize`, `diarize_speakers` | `true`, `0` | tell the other people apart; `0` = work out how many, or a number up to 12 |
 | `my_label`, `others_label` | `Me`, `Others` | speaker names in the transcript; must differ |
 | `compress_audio` | `"aac"` | `"flac"` or `"off"` |
@@ -636,7 +650,7 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 | `mt/documents.py`, `mt/ocr.py` | meeting documents: copying, the manifest, reading each file type, the background reader, and Apple Vision OCR |
 | `mt/jobs.py`, `mt/progress.py` | progress of the meetings being processed |
 | `mt/recorder.py`, `mt/screenshot.py`, `mt/flash.py` | recording, choosing and saving screenshots, screenshot flash |
-| `mt/transcribe.py`, `mt/audio.py` | Whisper transcription, echo handling, audio compression |
+| `mt/transcribe.py`, `mt/audio.py` | Whisper transcription (including `ensure_model`, which checks the model is complete and downloads it with progress), echo handling, audio compression |
 | `mt/diarize.py` | telling the other people apart (sherpa-onnx) |
 | `mt/pipeline.py`, `mt/summarize.py`, `mt/docx_export.py` | processing flow, Claude summary, Word export |
 | `mt/config.py`, `mt/settings_api.py`, `mt/settings_window.py`, `mt/ui/settings.html` | settings storage, validation and window |

@@ -104,6 +104,18 @@ class Tracker:
                             c["sub"] = ""
                     elif not seen_it:
                         c.update(state="done", sub="")
+            elif ev["kind"] == "whisper":  # first run (or a broken cache): the speech model is fetched before any track starts
+                step = self._advance(job, "transcribe")
+                if step is None:
+                    return
+                kids = step["children"]
+                model = next((c for c in kids if c["key"] == "model"), None)
+                if model is None:
+                    model = {"key": "model", "label": "Downloading model", "state": "now", "sub": "", "fraction": 0.0}
+                    kids.insert(0, model)
+                    for c in kids[1:]:  # the tracks wait for the model
+                        c.update(state="todo", sub="Waiting")
+                model.update(state="now", sub=f"{ev['mb']} MB")
             elif ev["kind"] in ("diarizing", "diarized"):
                 step = self._advance(job, "transcribe")
                 child = next((c for c in (step["children"] if step else []) if c["key"] == "diarize"), None)
@@ -218,7 +230,8 @@ class Tracker:
             elif s["state"] == "now":
                 if s["key"] == "transcribe":
                     # a recording has two tracks; a track that never shows up leaves the ring at half until summarizing starts
-                    part = min(1.0, sum(c.get("fraction", 0.0) if c["state"] != "done" else 1.0 for c in s["children"]) / max(len(s["children"]), 1))
+                    tracks = [c for c in s["children"] if c["key"] != "model"]  # the model download is not part of the ring
+                    part = min(1.0, sum(c.get("fraction", 0.0) if c["state"] != "done" else 1.0 for c in tracks) / max(len(tracks), 1))
                 else:
                     part = 0.5
                 total += share * part

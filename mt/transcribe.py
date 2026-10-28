@@ -5,13 +5,15 @@ import json
 import re
 import struct
 import tempfile
+import threading
+import time
 from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
 from .audio import find_track
-from .progress import SPEAKERS_FAILED, speakers_found, transcribing
+from .progress import SPEAKERS_FAILED, downloading_whisper, speakers_found, transcribing
 
 SR = 16000
 SILENT_RMS = 0.003
@@ -39,6 +41,8 @@ ECHO_COVER = 0.7  # share of a mic segment's content words that the system track
 MERGE_GAP_S = 1.0
 MERGE_MAX_CHARS = 400
 MERGE_MAX_S = 30.0
+MODEL_STALL_S = 300  # no new bytes for this long = the download is stuck (the first bytes can take a minute)
+MODEL_WEIGHTS = ("weights.safetensors", "weights.npz", "model.safetensors")
 MIN_TURN_S = 0.5  # shorter diarization turns are too unreliable to vote on who spoke
 
 
@@ -373,9 +377,59 @@ def unmuted(audio: np.ndarray, offset: float, spans: list) -> np.ndarray:
     return audio[keep]
 
 
+def _has_weights(folder: Path) -> bool:
+    return any((folder / w).is_file() and (folder / w).stat().st_size > 0 for w in MODEL_WEIGHTS)
+
+
+def ensure_model(model: str, progress=lambda msg: None) -> None:
+    """Check that the Whisper model is on this Mac and complete, downloading it if not. Without this a broken
+    cache (a download that was interrupted, leaving empty weight files) makes the first transcription hang."""
+    local = Path(model).expanduser()
+    if local.exists():
+        if not _has_weights(local):
+            raise RuntimeError(f"The Whisper model folder {local} has no weights file ({', '.join(MODEL_WEIGHTS)}).")
+        return
+    from huggingface_hub import constants, snapshot_download
+
+    try:
+        if _has_weights(Path(snapshot_download(model, local_files_only=True))):
+            return
+    except Exception:
+        pass  # not (completely) downloaded yet
+    progress(downloading_whisper(0))
+    result: dict = {}
+
+    def fetch():
+        try:
+            result["path"] = snapshot_download(model)
+        except Exception as e:
+            result["error"] = e
+
+    t = threading.Thread(target=fetch, name="model-download", daemon=True)
+    t.start()
+    blobs = Path(constants.HF_HUB_CACHE) / ("models--" + model.replace("/", "--")) / "blobs"
+    last, moved = -1, time.monotonic()
+    while t.is_alive():
+        t.join(2)
+        size = sum(f.stat().st_size for f in blobs.glob("*") if f.is_file()) if blobs.exists() else 0
+        if size != last:
+            last, moved = size, time.monotonic()
+            progress(downloading_whisper(size // 2**20))
+        elif time.monotonic() - moved > MODEL_STALL_S:
+            raise RuntimeError(
+                f"Downloading the Whisper model {model} is stuck at {size // 2**20} MB. Check your internet connection, "
+                f"delete the folder {blobs.parent} and try again (or pick another model in Settings)."
+            )
+    if "error" in result:
+        raise RuntimeError(f"Could not download the Whisper model {model} ({type(result['error']).__name__}): {str(result['error'])[:150]}")
+    if not _has_weights(Path(result["path"])):
+        raise RuntimeError(f"The Whisper model {model} downloaded without a weights file; it may not be an MLX Whisper model.")
+
+
 def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) -> Path:
     meta = json.loads((meeting_dir / "meta.json").read_text())
     mine, others = cfg["my_label"], cfg["others_label"]
+    ensure_model(cfg["model"], progress)
     tracks: dict[str, tuple[np.ndarray, float]] = {}
     notes: list[str] = []
     muted = {mine: meta.get("mic_muted") or [], others: meta.get("system_muted") or []}
