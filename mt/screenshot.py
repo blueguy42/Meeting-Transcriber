@@ -1,9 +1,10 @@
 """Screenshots: freeze the screen, let you choose an area, save only that area.
 
 Pressing the screenshot button (or its shortcut) takes a picture of the screen under the mouse at once (so what you see is
-exactly what is saved, even if a video keeps playing), shows it full screen with a dotted rectangle you drag, and the rest
-dimmed. Two buttons sit inside the frame at its bottom right: ✕ cancels and ✓ takes the screenshot. Return and Esc do the same, and ⌘A selects
-the whole screen. This module only does the choosing (AppKit, main thread); mt/recorder.py saves the picture.
+exactly what is saved, even if a video keeps playing), shows it full screen with the rest dimmed. Point at a window, the menu bar, the Dock
+(or, with Accessibility allowed, a button or panel inside) to see a box you can click to choose it (see mt/snap.py); once chosen this way it can be
+adjusted but no other box chosen unless you cancel. Or drag any area. Return with nothing chosen takes the whole screen. Two buttons sit inside the
+frame at its bottom right: ✕ cancels and ✓ takes the screenshot. Return and Esc do the same, and ⌘A selects the whole screen. This module only does the choosing (AppKit, main thread); mt/recorder.py saves the picture.
 """
 
 import AppKit
@@ -134,6 +135,10 @@ class _SelectView(NSView):
         self.ready = False  # the area is chosen (mouse released): buttons are shown
         self.mouse = None
         self.hover = None  # 'cancel' | 'add' while the pointer is on that button
+        self.snapper = None  # point -> boxes to snap to (smallest first), set by AreaSelector
+        self.boxes, self.snap_pt = [], None
+        self.locked = False  # the area came from clicking a box: it can be adjusted, but no other box or area chosen (a dragged one can be redrawn)
+        self.click_box, self.moved = None, False
         self.addTrackingArea_(NSTrackingArea.alloc().initWithRect_options_owner_userInfo_(self.bounds(), TRACK, self, None))
 
     @objc.python_method
@@ -152,9 +157,18 @@ class _SelectView(NSView):
         self.image.drawInRect_(b)
         dim = NSBezierPath.bezierPathWithRect_(b)
         if self.sel is None:
+            if self.boxes:
+                box = self._current_box()
+                dim.appendBezierPath_(NSBezierPath.bezierPathWithRect_(r_rect(box)))
+                dim.setWindingRule_(1)
+                NSColor.colorWithCalibratedWhite_alpha_(0.0, 0.4).setFill()
+                dim.fill()
+                self._draw_box(box)
+                self._hint("Click to choose it  ·  Drag for any area  ·  Return: whole screen  ·  Esc cancels")
+                return
             NSColor.colorWithCalibratedWhite_alpha_(0.0, 0.28).setFill()
             dim.fill()
-            self._hint("Drag to choose the area  ·  Esc cancels")
+            self._hint("Click a window or drag an area  ·  Return: whole screen  ·  Esc cancels")
             return
         x, y, w, h = self.sel
         dim.appendBezierPath_(NSBezierPath.bezierPathWithRect_(NSMakeRect(x, y, w, h)))
@@ -191,9 +205,26 @@ class _SelectView(NSView):
                 r, text = (cancel, "Cancel  ·  Esc") if self.hover == "cancel" else (add, "Screenshot  ·  Return")
                 ty = box[1] - 26
                 self._pill(text, r[0] + BUTTON / 2, ty if ty >= 4 else box[1] + box[3] + 4, center=True)
+        if self.boxes:  # pointing at something outside the chosen area: clicking chooses that instead
+            self._draw_box(self._current_box())
         self._size_label(where)
         if self.ready:
             self._hint("Return takes the screenshot  ·  Esc cancels")
+
+    @objc.python_method
+    def _draw_box(self, r):
+        """The box you would get by clicking: a tint, a solid blue line and its size in real pixels."""
+        NSColor.colorWithCalibratedWhite_alpha_(1.0, 0.1).setFill()
+        NSBezierPath.bezierPathWithRect_(r_rect(r)).fill()
+        edge = NSBezierPath.bezierPathWithRect_(r_rect(r))
+        edge.setLineWidth_(2.0)
+        NSColor.colorWithCalibratedRed_green_blue_alpha_(0.039, 0.424, 1.0, 1.0).setStroke()
+        edge.stroke()
+        sx = self.pixels[0] / self.size()[0]
+        ty = r[1] - 24
+        if ty < 4 or (ty < HINT_TOP + 30 and abs(r[0] - self.size()[0] / 2) < 260):
+            ty = r[1] + 6  # no room above it, or it would sit on the top hint
+        self._pill(f"{round(r[2] * sx)} × {round(r[3] * sx)} px", r[0], min(max(ty, 4), self.size()[1] - 26))
 
     @objc.python_method
     def _pill(self, text, x, y, size=11.0, center=False):
@@ -279,6 +310,8 @@ class _SelectView(NSView):
 
     @objc.python_method
     def _cursor_for(self, hit):
+        if hit is None and self.locked:
+            return NSCursor.arrowCursor()
         if hit in ("cancel", "add"):
             return NSCursor.pointingHandCursor()
         if hit in FRAME_POSITIONS:
@@ -298,12 +331,35 @@ class _SelectView(NSView):
 
     # ---- mouse
     def mouseMoved_(self, event):
-        hit = self._hit(self.point(event))
+        p = self.point(event)
+        hit = self._hit(p)
         hover = hit if hit in ("cancel", "add") else None
         if hover != self.hover:
             self.hover = hover
             self.setNeedsDisplay_(True)
+        self._snap(p, hit)
         self._cursor_for(hit).set()
+
+    @objc.python_method
+    def _snap(self, p, hit):
+        """Keep self.boxes to the boxes under the pointer, only while it is not on the chosen area or being dragged."""
+        if self.snapper is None or self.mode is not None or self.sel is not None:  # boxes only before anything is chosen
+            boxes = []
+        else:
+            if self.snap_pt is not None and abs(p[0] - self.snap_pt[0]) < 3 and abs(p[1] - self.snap_pt[1]) < 3:
+                return  # asking the other apps for their parts costs time: only when the pointer really moved
+            self.snap_pt = p
+            boxes = self.snapper(p)
+        if not boxes:
+            self.snap_pt = None
+        boxes = boxes[:1]  # the smallest thing under the pointer
+        if boxes != self.boxes:
+            self.boxes = boxes
+            self.setNeedsDisplay_(True)
+
+    @objc.python_method
+    def _current_box(self):
+        return self.boxes[0]
 
     def mouseEntered_(self, event):
         self.mouseMoved_(event)
@@ -317,7 +373,12 @@ class _SelectView(NSView):
         if hit == "add":
             self.on_done(self.sel)
             return
+        if self.locked and hit is None:
+            return  # a window box is chosen: cancel (Esc or ✕) to choose again
         self.anchor, self.start_sel = p, self.sel
+        self.click_box = self._current_box() if self.boxes else None
+        self.moved = False
+        self.boxes = []
         if hit == "inside":
             self.mode = "move"
         elif hit in HANDLES:
@@ -333,6 +394,7 @@ class _SelectView(NSView):
         if self.mode == "new":
             if abs(p[0] - ax) >= 1 or abs(p[1] - ay) >= 1:
                 self.sel = normalized(ax, ay, p[0], p[1], size)
+                self.moved = self.moved or abs(p[0] - ax) >= 3 or abs(p[1] - ay) >= 3
         elif self.mode == "move" and self.start_sel:
             x, y, w, h = self.start_sel
             nx = min(max(x + p[0] - ax, 0.0), size[0] - w)
@@ -354,16 +416,23 @@ class _SelectView(NSView):
         self.setNeedsDisplay_(True)
 
     def mouseUp_(self, event):
+        if self.mode == "new" and not self.moved and self.click_box is not None:
+            self.sel = self.click_box  # a click on a snapped box chooses it
+            self.locked = True
         if self.sel is not None and (self.sel[2] < MIN_SIDE or self.sel[3] < MIN_SIDE):
             self.sel = None  # a click, not an area
         self.ready = self.sel is not None
         self.mode = None
         self.hover = None
+        self.click_box = None
+        self.snap_pt = None
         self.setNeedsDisplay_(True)
         self.mouseMoved_(event)
 
     # ---- keys
     def selectAll_(self, sender):  # ⌘A reaches us through the Edit menu the app installs
+        if self.locked:
+            return
         w, h = self.size()
         self.sel, self.ready, self.mode = (0.0, 0.0, w, h), True, None
         self.setNeedsDisplay_(True)
@@ -375,6 +444,9 @@ class _SelectView(NSView):
         elif key in (36, 76):  # Return, Enter
             if self.sel is not None:
                 self.on_done(self.sel)
+            else:  # nothing chosen: the whole screen
+                w, h = self.size()
+                self.on_done((0.0, 0.0, w, h))
         elif key == 0 and event.modifierFlags() & (1 << 20):  # ⌘A: the whole screen
             self.selectAll_(None)
 
@@ -404,8 +476,39 @@ class AreaSelector:
         win.setCollectionBehavior_((1 << 0) | (1 << 8) | (1 << 4))  # all Spaces, over full-screen apps, stays put
         self.view = _SelectView.alloc().initWithFrame_(NSMakeRect(0, 0, frame.size.width, frame.size.height))
         self.view.setup(image, (w, h), self._done_points)
+        try:  # boxes to snap to; the screen's top-left corner in the global (Quartz) coordinates turns screen points into theirs
+            import Quartz
+
+            from . import snap
+
+            origin = Quartz.CGDisplayBounds(int(screen.deviceDescription()["NSScreenNumber"])).origin
+            dock = self._dock_rect(screen, origin)
+            wins = snap.windows(_own_pid(), dock)
+
+            def boxes_at(p):
+                found = snap.boxes_at(wins, (p[0] + origin.x, p[1] + origin.y))
+                return [(b[0] - origin.x, b[1] - origin.y, b[2], b[3]) for b in found]
+
+            self.view.snapper = boxes_at
+        except Exception:
+            self.view.snapper = None  # choosing by dragging still works
         win.setContentView_(self.view)
         self._pixels = (w, h)
+
+    @staticmethod
+    def _dock_rect(screen, origin):
+        """The strip along the screen's bottom, left or right that the Dock reserves, in global top-left points; None if the Dock is hidden."""
+        f, v = screen.frame(), screen.visibleFrame()
+        left, right = v.origin.x - f.origin.x, f.origin.x + f.size.width - (v.origin.x + v.size.width)
+        bottom = v.origin.y - f.origin.y
+        W, H = f.size.width, f.size.height
+        if bottom > 8:
+            return (origin.x, origin.y + H - bottom, W, bottom)
+        if left > 8:
+            return (origin.x, origin.y, left, H)
+        if right > 8:
+            return (origin.x + W - right, origin.y, right, H)
+        return None
 
     def show(self) -> None:
         NSApp.activateIgnoringOtherApps_(True)  # keys (Return, Esc) only reach a window of the active app

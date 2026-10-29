@@ -177,8 +177,10 @@ default it is kept out of your screenshots and screen shares. See [Privacy and p
 Press the camera button (or **Ctrl + Option + S** from any app) while recording. The screen under your mouse **freezes**
 into a still picture, dimmed a little, so what you see is exactly what gets saved, even if a video keeps playing. Then:
 
-1. **Drag** to draw the area you want. Its edge is a solid white line and everything outside is dimmed. A small label shows its
-   size in real screen pixels.
+1. **Choose what to capture.** Point at something and a **blue box** shows what a click would choose (a window, the menu bar, the
+   Dock, and with Accessibility allowed, a button or panel inside one), with its size. **Click** to choose it. Or **drag** to draw any area you like: its edge is a solid white line and everything
+   outside is dimmed. A small label shows the size in real screen pixels. **Return** before choosing anything takes the whole
+   screen.
 2. **Adjust it**: drag inside to move it, or pull a corner or any part of an edge to resize it (the pointer shows the matching
    resize arrow).
 3. Click **✓** (bottom right, inside the frame) or press **Return** to take the screenshot; **✕** or **Esc** cancels and saves nothing.
@@ -192,6 +194,12 @@ into a still picture, dimmed a little, so what you see is exactly what gets save
 - Only the area you chose is saved, as `shots/shot_<seconds>.jpg`, scaled by *Settings → Recording → Screenshots → Screen
   resolution*. The screen flashes white, and the transcript gets a `(screenshot: …)` marker at the moment
   the screen froze.
+- The blue boxes only show before you have chosen anything. Once an area exists (clicked or dragged) pointing elsewhere shows nothing.
+- A box you chose by clicking is final: you can still move or resize it, but to pick a different box or area you cancel
+  (**Esc** or **✕**) and take the screenshot again.
+- **Boxes inside windows** (buttons, panels, toolbars) need *System Settings → Privacy & Security → Accessibility* to allow the
+  app, and only work in apps that describe their parts to macOS (many web pages and some apps do not). Without it you still
+  get whole windows, and dragging always works.
 - If the area is too small to hold the two buttons, they sit just outside it, below or above.
 - With several screens, the one under your mouse freezes. The bar and its popups close while you choose, and the choosing
   window is not visible to people you share your screen with.
@@ -467,6 +475,7 @@ a notification and the previous settings stay in effect.
 | The notes, screenshot or document buttons are greyed out | They only work while recording. Start a recording first |
 | A document says *No text found* | It is probably scanned or all pictures: add it again with *Read text in images (OCR)* ticked. Very blurry or low-resolution pictures cannot be read |
 | A document was not added | A notification says why: already added, too big (over 100 MB), not a supported kind of file, or the limit of 30 documents |
+| No small boxes to click when pointing at buttons | Allow the app in System Settings → Privacy & Security → Accessibility (optional; whole windows and dragging work without it) |
 | Screenshot error about Screen Recording | Allow the app in System Settings → Privacy & Security, then restart it |
 | A meeting failed to process or summarize | **⋮ → Summarize a meeting…**, or use the command line below |
 | The summary fails on a very long meeting | See "Very long meetings" above |
@@ -517,7 +526,9 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   Tooltips float one level above popups. The bar's position, hidden state and the notes panel size are kept in `overlay.json`
   next to `config.toml`.
 - Because the app has no menu bar, it installs a small hidden Edit menu at start-up so ⌘A/C/V/X/Z reach text boxes.
-- Global hotkeys use Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission.
+- Global hotkeys use Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission. Only the optional
+  snapping to parts inside a window (`mt/snap.py`, `pyobjc-framework-ApplicationServices`) uses Accessibility; windows themselves come
+  from `CGWindowListCopyWindowInfo`.
 
 ### How recording works
 - **Microphone:** `sounddevice` input stream on the default input device, 16 kHz mono, written to `recordings/mic.wav`.
@@ -649,7 +660,7 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 | `mt/notes.py`, `mt/ui/notes.html` | meeting notes: `notes.txt` storage, and the notes panel (a text box with timestamp chips) |
 | `mt/documents.py`, `mt/ocr.py` | meeting documents: copying, the manifest, reading each file type, the background reader, and Apple Vision OCR |
 | `mt/jobs.py`, `mt/progress.py` | progress of the meetings being processed |
-| `mt/recorder.py`, `mt/screenshot.py`, `mt/flash.py` | recording, choosing and saving screenshots, screenshot flash |
+| `mt/recorder.py`, `mt/screenshot.py`, `mt/snap.py`, `mt/flash.py` | recording, choosing and saving screenshots, the boxes to snap to, screenshot flash |
 | `mt/transcribe.py`, `mt/audio.py` | Whisper transcription (including `ensure_model`, which checks the model is complete and downloads it with progress), echo handling, audio compression |
 | `mt/diarize.py` | telling the other people apart (sherpa-onnx) |
 | `mt/pipeline.py`, `mt/summarize.py`, `mt/docx_export.py` | processing flow, Claude summary, Word export |

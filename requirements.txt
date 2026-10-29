@@ -9,5 +9,6 @@ pypandoc_binary
 pyobjc-framework-WebKit
 pyobjc-framework-AVFoundation
 pyobjc-framework-Vision
+pyobjc-framework-ApplicationServices
 python-pptx
 openpyxl
