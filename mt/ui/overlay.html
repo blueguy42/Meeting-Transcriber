@@ -131,6 +131,7 @@
     bang: '<path d="M12 5v9M12 18v1" stroke="#ff453a" stroke-width="2.6"/>',
     clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
     pause: '<path d="M9 6v12M15 6v12" stroke="#ffb340" stroke-width="2.6"/>',
+    cancel: '<path d="M8 8l8 8M16 8l-8 8" stroke="#a9aab4" stroke-width="2.6"/>',
   };
   let state = { recording: false, elapsed: 0, micMuted: false, sysMuted: false, busy: 0, job: null, hidden: false, side: "right" };
   let lastSize = "";
@@ -168,6 +169,8 @@
       setRing("#ffb340", Math.max(0.03, job.progress), "#3a3b42"); $("glyph").innerHTML = GLYPHS.pause; timer = "Paused"; label = "Show processing status";
     } else if (job.stage === "failed") {
       setRing("#ff453a", 1, "#3a3b42"); $("glyph").innerHTML = GLYPHS.bang; timer = "Failed"; label = "Show error";
+    } else if (job.stage === "cancelled") {  // the only meeting left was cancelled: its tab is still there, so the ring says so
+      setRing("#8d8e98", 1, "#3a3b42"); $("glyph").innerHTML = GLYPHS.cancel; timer = "Cancelled"; label = "Show processing status";
     } else {
       setRing("#64a8ff", Math.max(0.03, job.progress), "#3a3b42");
       $("glyph").innerHTML = job.stage === "transcribing" ? GLYPHS.wave : job.stage === "queued" ? GLYPHS.clock : GLYPHS.doc;
@@ -176,7 +179,7 @@
     }
     $("rec").setAttribute("aria-label", label);
     $("timer").textContent = timer;
-    $("timer").style.color = paused || (!rec && job && job.stage === "paused") ? "#ffb340" : !rec && job && job.stage !== "done" && job.stage !== "failed" ? "#64a8ff" : "";
+    $("timer").style.color = paused || (!rec && job && job.stage === "paused") ? "#ffb340" : !rec && job && !["done", "failed", "cancelled"].includes(job.stage) ? "#64a8ff" : "";
     const b = $("badge");
     b.style.display = rec && s.busy > 0 ? "flex" : "none";
     b.textContent = s.busy;
@@ -213,6 +216,8 @@
     if (rec) { dot.style.cssText = "background:" + (paused ? "#ffb340" : "#ff453a"); }
     else if (job && job.stage === "done") { dot.style.cssText = "background:#30d158"; }
     else if (job && job.stage === "failed") { dot.style.cssText = "background:#ff453a"; }
+    else if (job && job.stage === "paused") { dot.style.cssText = "background:#ffb340"; }
+    else if (job && job.stage === "cancelled") { dot.style.cssText = "background:#8d8e98"; }
     else if (job) { dot.style.cssText = "background:#64a8ff"; }
     else { dot.style.cssText = "border:2px solid #8d8e98"; }
     $("tab-text").textContent = rec ? mmss(s.elapsed) : timer;

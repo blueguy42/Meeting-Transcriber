@@ -12,12 +12,21 @@
   .card { box-sizing: border-box; background: #2a2b31; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.4); }
   .tip { border-radius: 10px; padding: 7px 12px; white-space: pre; }  /* pre: a tooltip may have several lines */
   .tip .tt { font-weight: 600; margin-bottom: 4px; }
+  .tip .ts { color: #a9aab4; }
   .tip .li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
   .tip .li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ffb340; flex: none; }  /* amber, like the warning button */
   .k { color: #a9aab4; margin-left: 8px; }
   /* the Pause / Cancel bar attached to the Stop button */
   .ctl { display: flex; gap: 2px; padding: 4px 4px 4px 6px; background: #1e1f24; border-radius: 0 16px 16px 0; border-left: 0; box-shadow: 8px 10px 26px rgba(0,0,0,.4); }
   .ctl.right { flex-direction: row-reverse; padding: 4px 6px 4px 4px; border-radius: 16px 0 0 16px; border-left: 1px solid rgba(255,255,255,.14); border-right: 0; box-shadow: -8px 10px 26px rgba(0,0,0,.4); }
+  .ctlclip { clip-path: inset(-30px -40px -40px 0); }  /* the bar slides out from behind the toolbar's edge: nothing shows on that side of the card */
+  .ctlclip.right { clip-path: inset(-30px 0 -40px -40px); }
+  .ctlclip.in .ctl { animation: ctlL .18s cubic-bezier(.2,.8,.2,1); }
+  .ctlclip.right.in .ctl { animation-name: ctlR; }
+  .ctlclip.out .ctl { animation: none; transition: transform .18s cubic-bezier(.5,0,.8,.4), opacity .18s; transform: translateX(-100%); opacity: 0; }
+  .ctlclip.right.out .ctl { transform: translateX(100%); }
+  @keyframes ctlL { from { transform: translateX(-100%); } to { transform: none; } }
+  @keyframes ctlR { from { transform: translateX(100%); } to { transform: none; } }
   .cb { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #ececf0; cursor: pointer; }
   .cb.amb { color: #ffb340; }
   .cb.red { color: #ff6b61; }
@@ -155,6 +164,7 @@
     if (s.items) {  // a heading and a bulleted list
       return '<div class="card tip"><div class="tt">' + esc(s.text) + "</div>" + s.items.map((i) => '<div class="li">' + esc(i) + "</div>").join("") + "</div>";
     }
+    if (s.sub) return '<div class="card tip" style="max-width:340px;white-space:normal"><div class="tt" style="margin-bottom:2px">' + esc(s.text) + '</div><div class="ts">' + esc(s.sub) + "</div></div>";  // a meeting's full title and when it was recorded
     return '<div class="card tip">' + esc(s.text) + (s.hotkey ? '<span class="k">' + esc(s.hotkey) + "</span>" : "") + "</div>";
   }
 
@@ -174,8 +184,9 @@
   const CTL_BIN = '<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6.5 7l1 13h9l1-13M10 11v6M14 11v6"/></svg>';
 
   function renderCtl(s) {  // the first button pauses (resumes, when paused), the second cancels the recording
-    return '<div class="card ctl ' + (s.side === "right" ? "right" : "") + '"><div class="cb ' + (s.paused ? "amb" : "") + '" data-act="pause">' + (s.paused ? CTL_PLAY : CTL_PAUSE) +
-      '</div><div class="cb red" data-act="cancel">' + CTL_BIN + "</div></div>";
+    const side = s.side === "right" ? "right" : "";
+    return '<div class="ctlclip ' + side + (s.fresh ? " in" : " ready") + '"><div class="card ctl ' + side + '"><div class="cb ' + (s.paused ? "amb" : "") + '" data-act="pause">' + (s.paused ? CTL_PLAY : CTL_PAUSE) +
+      '</div><div class="cb red" data-act="cancel">' + CTL_BIN + "</div></div></div>";
   }
 
   function renderMenu(s) {
@@ -252,7 +263,7 @@
     const tabs = s.jobs.slice().reverse().map((j) => {
       const t = tabInfo(j), isOpen = j.id === open;
       const buttons = t.btns.length ? '<div class="ib">' + t.btns.map((b) => '<i class="' + b.cls + '" data-act="' + b.act + '" data-job="' + j.id + '" data-tip="' + esc(b.tip) + '" role="button" aria-label="' + esc(b.tip) + '">' + b.icon + "</i>").join("") + "</div>" : "";
-      const head = '<div class="th" tabindex="0" role="button" aria-expanded="' + isOpen + '" data-tab="' + j.id + '"><span class="chev">' + (isOpen ? CHEV_O : CHEV_C) + '</span><span class="si">' + t.si + '</span><div class="tt"><b>' + esc(j.name) + '</b><small class="' + t.cls + '">' + esc(t.line) + "</small></div>" + buttons + "</div>";
+      const head = '<div class="th" tabindex="0" role="button" aria-expanded="' + isOpen + '" data-tab="' + j.id + '" data-tip="' + esc(j.name) + '" data-sub="' + esc(j.when || "") + '"><span class="chev">' + (isOpen ? CHEV_O : CHEV_C) + '</span><span class="si">' + t.si + '</span><div class="tt"><b>' + esc(j.name) + '</b><small class="' + t.cls + '">' + esc(t.line) + "</small></div>" + buttons + "</div>";
       let body = "";
       if (isOpen) {
         if (j.state === "failed") body = '<div class="err">' + esc(j.error || "Processing failed.") + "</div>";
@@ -344,8 +355,8 @@
   window.render = function (s) {
     if (pressing && s.kind === "status") { deferred = s; return; }
     if (s.kind === "docs" || s.kind === "status" || s.kind === "ctl") {
-      const json = JSON.stringify(s);
-      if (json === lastJson && spec && spec.kind === s.kind) { report(); return; }  // nothing changed: leave the buttons alone
+      const json = JSON.stringify({ ...s, fresh: false });
+      if (!s.fresh && json === lastJson && spec && spec.kind === s.kind) { report(); return; }  // nothing changed: leave the buttons alone (a fresh one always draws, to slide in)
       lastJson = json;
       if (s.kind === "docs" && spec && spec.kind === "docs" && patchDocs(s)) { spec = { ...s, fresh: false }; report(); return; }
     } else {
@@ -372,6 +383,13 @@
     postRects();
   }
 
+  // The bar has slid all the way out (Python says so, a moment after it started): the buttons respond from now on, and their
+  // places are measured again (they were measured while the bar was still moving).
+  window.__ready = function () {
+    const c = wrap.querySelector(".ctlclip");
+    if (c && !c.classList.contains("out")) { c.classList.add("ready"); postRects(); }
+  };
+  window.__slideOut = function () { const c = wrap.querySelector(".ctlclip"); if (c) c.classList.add("out"); };
   window.__fade = function () { const t = wrap.querySelector(".toast"); if (t) t.classList.add("fade"); };
   window.addEventListener("resize", () => postRects());
   wrap.addEventListener("scroll", () => postRects(), true);  // scrolling the documents list moves the rows  // the panel was resized to fit: positions changed
@@ -394,13 +412,18 @@
       el.dataset.hi = i;
       const card = el.closest(".card");
       if (!card || getComputedStyle(card).visibility === "hidden") return;
-      const r = el.getBoundingClientRect();
+      // (the sliding bar is measured where it will rest, not where the animation has it right now)
+      let r = el.getBoundingClientRect();
+      if (spec.kind === "ctl") {
+        const m = new DOMMatrix(getComputedStyle(el.closest(".ctl")).transform);  // take the slide's offset back out
+        r = { x: r.x - m.m41, y: r.y - m.m42, width: r.width, height: r.height, top: r.top - m.m42, bottom: r.bottom - m.m42 };
+      }
       const box = el.closest(".rows");
       if (box) {  // a row scrolled out of the list can not be hovered or clicked
         const b = box.getBoundingClientRect();
         if (r.bottom < b.top + 2 || r.top > b.bottom - 2) return;
       }
-      rows.push({ i, x: r.x, y: r.y, w: r.width, h: r.height, tip: el.dataset.tip || "" });
+      rows.push({ i, x: r.x, y: r.y, w: r.width, h: r.height, tip: el.dataset.tip || "", sub: el.dataset.sub || "", tab: el.classList.contains("th") });
     });
     rows.sort((a, b) => a.w * a.h - b.w * b.h);  // a tab's icon buttons sit inside its row: the smaller one wins when the pointer is on both
     post({ op: "rects", rects: list, rows });
@@ -421,7 +444,11 @@
     const row = e.target.closest(".row, .b, .x, .tr, .cb, .th, .ib i");
     if (!row || !spec) return;
     if (spec.kind === "status" && row.dataset.tab) { toggleTab(Number(row.dataset.tab)); return; }
-    if (spec.kind === "ctl") { if (row.dataset.act) post({ op: "ctl_" + row.dataset.act }); return; }
+    if (spec.kind === "ctl") {
+      const clip = wrap.querySelector(".ctlclip");  // the buttons only respond once the bar has fully slid out (and not while it slides back)
+      if (row.dataset.act && clip && clip.classList.contains("ready") && !clip.classList.contains("out")) post({ op: "ctl_" + row.dataset.act });
+      return;
+    }
     if (spec.kind === "docs") { if (row.dataset.act) post({ op: row.dataset.act, id: row.dataset.id || null }); return; }
     if (row.dataset.sub) { setSub(true); return; }
     if (spec.kind === "menu" && row.dataset.id) post({ op: "menu_click", id: row.dataset.id });

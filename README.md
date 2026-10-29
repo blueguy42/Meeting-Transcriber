@@ -169,7 +169,7 @@ one showing: the old one fades out as the new one fades in. Clicks go straight t
   <img src="docs/screenshots/device-toast.png" alt="The device-changed notice for the microphone, the system audio and both, beside the bar" width="900">
 </p>
 
-**Pausing and cancelling.** While recording, rest the pointer on the **Stop** button. A small bar slides out beside it with two
+**Pausing and cancelling.** While recording, rest the pointer on the **Stop** button. A small bar slides out of the toolbar's edge beside it (and slides back when you move away; its buttons respond once it has fully slid out) with two
 buttons (there are no keyboard shortcuts for these, so they can't be hit by accident):
 
 - **Pause** (it becomes **Resume**) is a real pause: nothing is recorded, and the paused time is not counted. The timer and
@@ -321,7 +321,8 @@ documents*) and saving. When it is done you get **Summary** and **Folder** butto
 ("Transcribing · 62%", "Waiting…", "Done · 15:42") and small icon buttons on the right. Click a tab to open it and see its steps
 (click it again to close it; only one is open at a time, and none is fine). The meeting being processed opens by itself until you open
 or close a tab yourself. **×** only hides the panel: no button removes a tab except **Dismiss** (finished ones also go after 10
-minutes), and the panel disappears for good only when no tab is left. The panel is never taller than the toolbar: with more tabs than fit, they scroll. Hover an icon for its name.
+minutes), and the panel disappears for good only when no tab is left. The record button's ring always shows the most relevant tab (running, waiting, paused, else the latest: Done, Failed or Cancelled) and opens the
+panel, so no tab is ever out of reach, even if the only meeting left was cancelled. The panel is never taller than the toolbar: with more tabs than fit, they scroll. Hover an icon for its name; rest the pointer on a tab for a moment and a hint shows the meeting's whole title (the row cuts long ones short) and when it was recorded.
 
 | Meeting is… | Icon buttons |
 |---|---|

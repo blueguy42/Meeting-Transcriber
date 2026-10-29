@@ -111,6 +111,23 @@ class ClaudeProcess(unittest.TestCase):
         self.assertEqual((r.returncode, r.stdout), (0, "hello"))
 
 
+class WhenText(unittest.TestCase):
+    def test_the_recording_time_comes_from_the_folder_name(self):
+        from mt.jobs import when_text
+
+        self.assertEqual(when_text("2026-10-29_1620"), "Thu, Oct 29, 2026 · 16:20")
+        self.assertEqual(when_text("2026-10-29_1620-2 - Weekly sync"), "Thu, Oct 29, 2026 · 16:20")  # titled, second meeting that minute
+        self.assertEqual(when_text("old meeting"), "")
+        self.assertEqual(when_text("2026-13-45_9999"), "")  # not a date
+
+    def test_a_job_keeps_its_time_after_the_folder_is_renamed(self):
+        t = Tracker(("Me", "Others"))
+        i = t.add(Path("/m/2026-10-29_1620"), summarize=True)
+        t.finish(i, Path("/m/2026-10-29_1620 - Weekly sync"), Path("/m/2026-10-29_1620 - Weekly sync/summary.md"))
+        j = t.snapshot()[0]
+        self.assertEqual((j["name"], j["when"]), ("Weekly sync", "Thu, Oct 29, 2026 · 16:20"))
+
+
 class JobStates(unittest.TestCase):
     def tracker(self):
         t = Tracker(("Me", "Others"))
@@ -182,6 +199,23 @@ class JobStates(unittest.TestCase):
         t.dismiss(b)
         t.dismiss(c)
         self.assertEqual(sorted(j["id"] for j in t.snapshot()), sorted([a, d]))
+
+    def test_only_finished_meetings_expire(self):
+        import mt.jobs as J
+
+        t = Tracker(("Me", "Others"))
+        done, failed, cancelled, paused = (t.add(Path(f"/m/2026-10-29_10{n}0"), summarize=True) for n in range(4))
+        t.begin(done)
+        t.finish(done, Path("/m/x"), Path("/m/x/s.md"))
+        t.begin(failed)
+        t.fail(failed, "boom")
+        t.cancel(cancelled)
+        t.begin(paused)
+        t.pause(paused)
+        for j in t._jobs:
+            if j["finished"]:
+                j["finished"] -= J.KEEP_DONE_SECONDS + 5  # long ago
+        self.assertEqual(sorted(j["state"] for j in t.snapshot()), ["cancelled", "failed", "paused"])  # the finished one is gone
 
     def test_a_paused_job_can_be_cancelled_and_a_waiting_one_too(self):
         t, i = self.tracker()

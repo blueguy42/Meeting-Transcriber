@@ -287,8 +287,9 @@ class App:
 
     def _overlay_state(self) -> dict:
         jobs = self.jobs.snapshot()
-        live = [j for j in jobs if j["state"] != "cancelled"]  # (a cancelled meeting does not light the ring)
-        show = next((j for j in live if j["state"] == "active"), None) or next((j for j in live if j["state"] == "queued"), None) or next((j for j in live if j["state"] == "paused"), None) or (live[-1] if live else None)
+        # The ring follows the most relevant meeting: one running, else one waiting, else a paused one, else the latest tab (done,
+        # failed or cancelled): whatever tabs are in the panel, the ring says so and opens it.
+        show = next((j for j in jobs if j["state"] == "active"), None) or next((j for j in jobs if j["state"] == "queued"), None) or next((j for j in jobs if j["state"] == "paused"), None) or (jobs[-1] if jobs else None)
         return {
             "recording": self.rec.recording,
             "elapsed": int(self.rec.elapsed()),  # recording time: a pause is not counted

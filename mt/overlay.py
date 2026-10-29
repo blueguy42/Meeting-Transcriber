@@ -54,6 +54,7 @@ STATUS_LEVEL = 25  # NSStatusWindowLevel: above normal windows and the Dock
 MARGIN = 24  # gap between the bar and the screen edge
 GAP = 8  # gap between the bar and a popup
 TOAST_ONE_LINE = 52.0  # a one-line toast's card height
+SLIDE_S = 0.18  # the Pause / Cancel bar slides out of, and back into, the toolbar this long
 FADE_S = 0.25  # a toast fades in and out this long
 POPUP_PAD = 14.0  # transparent border around a popup's cards (room for their CSS shadow), see popup.html
 CLICK_MASK = (1 << 1) | (1 << 3) | (1 << 25)  # left, right, other mouse down
@@ -335,6 +336,8 @@ class Overlay:
         self._status_rows = []
         self._status_cards = []  # the processing panel's card (the window is taller than the card: the rest lets clicks through)
         self._status_tips = {}
+        self._status_tabs = {}  # row index -> when the meeting was recorded, for the rows that are tabs
+        self._tab_tip_timer = None  # a tab's hint waits a beat
         self._status_hover = -2
         self._menu_hover = -2  # the row the pointer is over (-1: none)
         # Mouse-moved events reach a tooltip-style panel late or in clumps, but the app-wide monitors get them
@@ -348,6 +351,9 @@ class Overlay:
         self._ctl_rows = []  # the Pause / Cancel buttons (x, y, w, h, index) in their page's coordinates
         self._ctl_hover = -2
         self._ctl_timer = None  # waits a beat before opening on hover
+        self._ctl_hide = None  # hides the panel once it has slid back
+        self._ctl_ready = False  # the Pause / Cancel bar has slid all the way out: only then do its buttons respond
+        self._ctl_ready_timer = None
         self._ctl_leave = None  # and a beat before closing when the pointer has left
         self._tip_at = None  # (x, top edge) of a card the tooltip sits under, in screen coordinates; None: beside the bar
         self._toast_cur = 1  # which toast panel shows the current toast
@@ -410,6 +416,7 @@ class Overlay:
 
     def hide(self) -> None:
         self.close_popups()
+        self._hide_ctl_now()  # (no sliding when the whole bar goes)
         self.hide_toast()
         self.ghost.hide()
         self.bar.hide()
@@ -550,7 +557,9 @@ class Overlay:
                     y = self._tip_at[3] - pad
             else:
                 x = self._tip_at[0] - pad if self._tip_at[2] == "left" else self._tip_at[0] - w + pad
-                y = self._tip_at[1] - h + pad  # under a card (the Pause / Cancel buttons)
+                y = self._tip_at[1] - h + pad  # under a card (the Pause / Cancel buttons, a tab)
+                if len(self._tip_at) > 3 and y < v.origin.y:  # no room below: above it
+                    y = self._tip_at[3] - pad
         elif kind == "tip":
             y = (top + bottom) / 2 - h / 2  # level with the middle of its button
         elif kind in ("menu", "docs"):
@@ -593,9 +602,9 @@ class Overlay:
             else:
                 self._status_cards = [(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"])) for r in msg.get("rects", [])]
                 self._status_rows = rows
-                self._status_hover = -2  # the page was redrawn: light the row under the pointer again, and its tooltip
-                self._status_tips = {int(r["i"]): str(r.get("tip", "")) for r in msg.get("rows", []) if r.get("tip")}  # the icon buttons' tooltips
-                self._status_pointer()
+                self._status_tips = {int(r["i"]): str(r.get("tip", "")) for r in msg.get("rows", []) if r.get("tip")}  # the icon buttons' tooltips...
+                self._status_tabs = {int(r["i"]): str(r.get("sub", "")) for r in msg.get("rows", []) if r.get("tab")}  # tab rows: their hint carries the time
+                self._status_pointer(reapply=True)
         elif op == "docs_delete":
             self.host.overlay_docs_action("delete", str(msg.get("id")))
             self._render_docs()
@@ -792,11 +801,18 @@ class Overlay:
             self.open_ctl(hit[1], hit[2])
 
     def open_ctl(self, top: float, bottom: float) -> None:
+        if self._ctl_hide is not None:  # it was still sliding back: out again
+            self._ctl_hide.invalidate()
+            self._ctl_hide = None
         self.hide_tip()
         self._anchor["ctl"] = {"top": top, "bottom": bottom}
         self._want["ctl"] = True
         self._ctl_hover = -2
-        self.ctl.render({"kind": "ctl", "side": self.side, "paused": bool(self._state.get("paused"))})
+        self._ctl_ready = False
+        if self._ctl_ready_timer is not None:
+            self._ctl_ready_timer.invalidate()
+        self._ctl_ready_timer = self._later(SLIDE_S + 0.02, self._ctl_slid_out)
+        self.ctl.render({"kind": "ctl", "side": self.side, "paused": bool(self._state.get("paused")), "fresh": True})  # fresh: it slides out of the bar
         self._pointer_moved()
 
     def close_ctl(self) -> None:
@@ -807,10 +823,32 @@ class Overlay:
         if not self._want["ctl"]:
             return
         self._want["ctl"] = False
-        self.ctl.hide()
+        self._ctl_ready = False  # (sliding back: the buttons no longer respond)
+        if self._ctl_ready_timer is not None:
+            self._ctl_ready_timer.invalidate()
+            self._ctl_ready_timer = None
         if self._ctl_hover >= 0:
             self.hide_tip()
         self._ctl_hover = -2
+        if self.ctl.visible:  # it slides back into the bar, then the panel goes
+            self.ctl.eval("window.__slideOut && window.__slideOut()")
+            self._ctl_hide = self._later(SLIDE_S + 0.03, self._hide_ctl_now)
+        else:
+            self.ctl.hide()
+
+    def _ctl_slid_out(self) -> None:
+        self._ctl_ready_timer = None
+        if self._want["ctl"]:
+            self._ctl_ready = True
+            self.ctl.eval("window.__ready && window.__ready()")  # the page starts answering clicks and measures the buttons again
+            self._ctl_pointer()  # a pointer already resting on a button lights it now
+
+    def _hide_ctl_now(self) -> None:
+        if self._ctl_hide is not None:
+            self._ctl_hide.invalidate()
+            self._ctl_hide = None
+        if not self._want["ctl"]:
+            self.ctl.hide()
 
     def _ctl_check_leave(self, hit) -> None:
         """Close a beat after the pointer has left both the Stop button and the Pause / Cancel bar."""
@@ -829,6 +867,8 @@ class Overlay:
         f = self.ctl.panel.frame()
         row = next((i for x, y, w, h, i in self._ctl_rows
                     if f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y), -1)
+        if not self._ctl_ready:
+            row = -1  # still sliding: nothing lights up, no hand, no tooltip
         if row != self._ctl_hover:
             self._ctl_hover = row
             self.ctl.eval(f"window.__setHoverRow && window.__setHoverRow({row})")
@@ -844,7 +884,9 @@ class Overlay:
             self._want["tip"] = True
             self.tip.render({"kind": "tip", "side": self.side, "text": text})
 
-    def _status_pointer(self) -> None:
+    def _status_pointer(self, reapply: bool = False) -> None:
+        """reapply: the page was just redrawn, which wiped the highlight: put it back on the row under the pointer (a tooltip
+        showing for it is left alone)."""
         if not self._want["status"]:
             return
         p = NSEvent.mouseLocation()
@@ -855,17 +897,38 @@ class Overlay:
             self.status.panel.setIgnoresMouseEvents_(not inside)
         row = next((i for x, y, w, h, i in self._status_rows
                     if f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y), -1)
+        if row == self._status_hover and reapply and row >= 0:
+            self.status.eval(f"window.__setHoverRow && window.__setHoverRow({row})")
         if row != self._status_hover:
             self._status_hover = row
             self.status.eval(f"window.__setHoverRow && window.__setHoverRow({row})")
+            if self._tab_tip_timer is not None:
+                self._tab_tip_timer.invalidate()
+                self._tab_tip_timer = None
             tip = self._status_tips.get(row)
-            if tip:  # an icon button: its tooltip, centred under it (above it if there is no room)
+            if row in self._status_tabs:  # a tab: after a beat, its full title and when it was recorded
+                self._tab_tip_timer = self._later(0.4, lambda r=row: self._tab_tip_due(r))
+                if self._tip_at is not None:
+                    self.hide_tip()
+            elif tip:  # an icon button: its tooltip, centred under it (above it if there is no room)
                 x, y, w, h, _i = next(r for r in self._status_rows if r[4] == row)
                 self._tip_at = (f.origin.x + x + w / 2, f.origin.y + f.size.height - (y + h) - 4, "center", f.origin.y + f.size.height - y + 4)
                 self._want["tip"] = True
                 self.tip.render({"kind": "tip", "side": self.side, "text": tip})
             elif self._tip_at is not None:
                 self.hide_tip()
+
+    def _tab_tip_due(self, row: int) -> None:
+        """The hint under a tab: the meeting's whole title (the row cuts it short) and when it was recorded."""
+        self._tab_tip_timer = None
+        if not self._want["status"] or self._status_hover != row or row not in self._status_tabs:
+            return
+        f = self.status.panel.frame()
+        x, y, w, h, _i = next(r for r in self._status_rows if r[4] == row)
+        left = f.origin.x + x + 50  # lined up with the title (the arrow, the status icon and their gaps come first)
+        self._tip_at = (left, f.origin.y + f.size.height - (y + h) - 2, "left", f.origin.y + f.size.height - y + 2)
+        self._want["tip"] = True
+        self.tip.render({"kind": "tip", "side": self.side, "text": self._status_tips.get(row, ""), "sub": self._status_tabs[row]})
 
     def _menu_passthrough(self) -> None:
         """Let clicks through the menu panel everywhere except over the menu (and its submenu)."""

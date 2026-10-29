@@ -33,6 +33,19 @@ def display_name(folder: str) -> str:
         return folder
 
 
+def when_text(folder: str) -> str:
+    """'2026-10-29_1620 - Weekly sync' -> 'Thu, Oct 29, 2026 · 16:20' (when the meeting was recorded); '' if the folder has no date."""
+    m = FOLDER.match(folder)
+    if not m:
+        return ""
+    y, mo, d, h, mi = (int(m.group(i)) for i in range(1, 6))
+    try:
+        t = datetime(y, mo, d, h, mi)
+    except ValueError:
+        return ""
+    return f"{t:%a}, {t:%b} {d}, {y} · {h:02d}:{mi:02d}"
+
+
 def _step(key: str, label: str, state: str = "todo") -> dict:
     return {"key": key, "label": label, "state": state, "sub": "", "children": []}
 
@@ -65,7 +78,7 @@ class Tracker:
             if lines:
                 steps[-1]["detail"] = "\n".join(lines)
         steps.append(_step("save", "Saving files"))
-        job = {"id": next(self._ids), "folder": str(folder), "name": display_name(folder.name), "state": "queued",
+        job = {"id": next(self._ids), "folder": str(folder), "name": display_name(folder.name), "when": when_text(folder.name), "state": "queued",
                "steps": steps, "diarize": bool(diarize and transcribe), "out": None, "error": "", "seen": False, "finished": 0.0,
                "mode": mode, "paused_at": None, "note": "", "stopping": ""}  # mode: "full" | "transcribe" | "summarize"
         with self._lock:
@@ -240,7 +253,7 @@ class Tracker:
         """Jobs worth showing: running or waiting ones, then unseen results; oldest first."""
         now = time.time()
         with self._lock:
-            self._jobs = [j for j in self._jobs if not (j["seen"] or (j["finished"] and now - j["finished"] > KEEP_DONE_SECONDS))]
+            self._jobs = [j for j in self._jobs if not (j["seen"] or (j["state"] == "done" and j["finished"] and now - j["finished"] > KEEP_DONE_SECONDS))]  # (only finished meetings expire: failed, paused and cancelled ones wait for you)
             out = []
             for j in self._jobs:
                 c = {k: v for k, v in j.items() if k != "steps"}
