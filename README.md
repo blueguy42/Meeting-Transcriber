@@ -169,6 +169,20 @@ one showing: the old one fades out as the new one fades in. Clicks go straight t
   <img src="docs/screenshots/device-toast.png" alt="The device-changed notice for the microphone, the system audio and both, beside the bar" width="900">
 </p>
 
+**Pausing and cancelling.** While recording, rest the pointer on the **Stop** button. A small bar slides out beside it with two
+buttons (there are no keyboard shortcuts for these, so they can't be hit by accident):
+
+- **Pause** (it becomes **Resume**) is a real pause: nothing is recorded, and the paused time is not counted. The timer and
+  ring turn amber and stand still, the mute and screenshot buttons are greyed, and the audio simply carries on after you resume,
+  with no silence in between. Notes and documents still work. The transcript shows `(Recording paused)` and `(Recording resumed)`
+  where it happened. Stopping while paused is fine.
+- **Cancel recording** asks "Cancel this recording?" and, if you confirm, **deletes the meeting folder** (audio, notes,
+  screenshots and documents) and starts no summary. Older meetings are never touched.
+
+<p align="center">
+  <img src="docs/screenshots/recording-controls.png" alt="Hovering Stop shows Pause and Cancel; the paused bar; the cancel question; what pause does to the audio" width="900">
+</p>
+
 **Move it.** Drag the bar by its grip or any empty part. A dashed preview shows which screen edge it will snap to. It
 remembers where you left it. Menus and popups open on the side facing the middle of the screen.
 
@@ -551,8 +565,14 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   chosen crop is scaled by `screenshot_scale` and saved as `shots/shot_<seconds>.jpg` (JPEG quality 80); the number is the time
   the screen froze. The window is hidden from screen sharing (`NSWindowSharingNone`), sits above the bar, and hands the keyboard
   back to the meeting app when it closes. A white flash confirms each added screenshot.
+- **Pause and cancel:** `Recorder.pause()` makes the microphone callback drop its frames and tells the helper to `MUTE` (it cannot stop
+  writing); `resume()` restores the mute you had. At stop the paused stretches are cut out of `system.wav` (`cut_wav`), so both tracks are
+  free of padding. `Recorder.elapsed()` is the recording's own clock (wall time minus pauses): the timer, notes, document and
+  screenshot times all use it, so nothing needs shifting. `cancel()` stops everything and deletes the meeting folder, but only
+  when it is directly inside the meetings folder. The Stop-button flyout is `ctl` in `mt/ui/popup.html` / `mt/overlay.py`.
 - **`meta.json`** stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
-  `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device` / `system_device` (the default
+  `paused` (`[{"at": seconds into the recording, "for": seconds not recorded}]`: pauses are cut out of the audio, so every time
+  here is in recording time) and `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device` / `system_device` (the default
   input / output device when the recording started) and `device_events` when either changed mid-recording (a device plugged in or
   out, or a new one picked in System Settings). Each entry has `at` (seconds from the start), `track` (`mic`, `system` or `mic+system`
   when both moved to the same device within 2 s, as a headset does) and `event`: `switched` to the named `device`, or for the mic also `stalled` (the same mic stopped

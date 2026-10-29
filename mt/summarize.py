@@ -19,7 +19,8 @@ The meeting transcript follows. Lines are `[hh:mm:ss] Speaker: text`; "Me" is th
 a screenshot the user took at that moment: open each one with the Read tool, and use what
 is on screen (slides, docs, numbers, names) to improve the notes. Lines like `(Me muted)` /
 `(Me unmuted)` mean that side was deliberately not recorded for that stretch: nothing is missing
-by mistake, so don't mention it in the notes.
+by mistake, so don't mention it in the notes. Likewise `(Recording paused)` / `(Recording resumed)` mark a pause: the time in between was
+not recorded and is not counted, so the next line follows on directly.
 "Others 1", "Others 2" and so on are different people on the call (numbered by how much they talk, not by name):
 treat each as one person and use names from the conversation where you can.
 

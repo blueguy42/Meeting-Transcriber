@@ -60,7 +60,7 @@ CLICK_MASK = (1 << 1) | (1 << 3) | (1 << 25)  # left, right, other mouse down
 MOVE_MASK = 1 << 5  # mouse moved
 # NSTrackingMouseEnteredAndExited | MouseMoved | ActiveAlways | InVisibleRect
 TRACK_ALWAYS = 0x01 | 0x02 | 0x04 | 0x80 | 0x200  # (0x04: cursorUpdate)
-OPS = {"toggle", "shot", "notes", "docs_add", "mute_mic", "mute_system", "perm", "quit"}
+OPS = {"toggle", "shot", "notes", "docs_add", "mute_mic", "mute_system", "perm", "quit", "pause", "cancel_rec"}
 
 
 class _OverlayPanel(NSPanel):
@@ -313,7 +313,12 @@ class Overlay:
             NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(MOVE_MASK, lambda e: self._pointer_moved()),
             NSEvent.addLocalMonitorForEventsMatchingMask_handler_(MOVE_MASK, lambda e: (self._pointer_moved(), e)[1]),
         ]
-        self._want = {"tip": False, "menu": False, "status": False, "notes": False, "docs": False, "toast0": False, "toast1": False}
+        self._want = {"tip": False, "menu": False, "status": False, "notes": False, "docs": False, "ctl": False, "toast0": False, "toast1": False}
+        self._ctl_rows = []  # the Pause / Cancel buttons (x, y, w, h, index) in their page's coordinates
+        self._ctl_hover = -2
+        self._ctl_timer = None  # waits a beat before opening on hover
+        self._ctl_leave = None  # and a beat before closing when the pointer has left
+        self._tip_at = None  # (x, top edge) of a card the tooltip sits under, in screen coordinates; None: beside the bar
         self._toast_cur = 1  # which toast panel shows the current toast
         self._toast_timers = {"toast0": [], "toast1": []}  # each panel's fade and hide
         self._docs_rows = []
@@ -332,9 +337,10 @@ class Overlay:
         self.status = _Surface("popup.html", lambda m: self._on_popup("status", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved(), on_hand=lambda: self._hand, capturable=cap)
         self.docs = _Surface("popup.html", lambda m: self._on_popup("docs", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved(), on_hand=lambda: self._hand, capturable=cap)
         # two toast panels, used in turn: a new toast appears on one while the old one fades out on the other
+        self.ctl = _Surface("popup.html", lambda m: self._on_popup("ctl", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved(), on_hand=lambda: self._hand, capturable=cap)  # Pause / Cancel, attached to the Stop button
         self.toasts = [_Surface("popup.html", lambda m, k=k: self._on_popup(k, m), level=STATUS_LEVEL + 3, ignore_mouse=True, shadow=False, capturable=cap) for k in ("toast0", "toast1")]  # above tooltips; clicks go through
         self.notes = _Surface("notes.html", self._on_notes, level=STATUS_LEVEL + 1, shadow=False, capturable=cap, can_key=True)
-        self._popups = {"tip": self.tip, "menu": self.menu, "status": self.status, "notes": self.notes, "docs": self.docs, "toast0": self.toasts[0], "toast1": self.toasts[1]}
+        self._popups = {"tip": self.tip, "menu": self.menu, "status": self.status, "notes": self.notes, "docs": self.docs, "toast0": self.toasts[0], "toast1": self.toasts[1], "ctl": self.ctl}
 
     # ---- visibility
     def set_capturable(self, flag: bool) -> None:
@@ -344,7 +350,7 @@ class Overlay:
             return
         self._capturable = flag
         if flag:
-            for surface in (self.bar, self.tip, self.menu, self.status, self.notes, self.docs, *self.toasts, self.ghost):
+            for surface in (self.bar, self.tip, self.menu, self.status, self.notes, self.docs, self.ctl, *self.toasts, self.ghost):
                 surface.set_capturable(True)
             return
         # macOS does not take "visible to captures" back from a window that already has it (the window server keeps the old
@@ -352,7 +358,7 @@ class Overlay:
         was_visible = self.bar.visible
         self.close_popups()
         self.hide_toast()
-        old = (self.bar, self.tip, self.menu, self.status, self.notes, self.docs, *self.toasts, self.ghost)
+        old = (self.bar, self.tip, self.menu, self.status, self.notes, self.docs, self.ctl, *self.toasts, self.ghost)
         self._bar_items, self._bar_hover, self._menu_rows, self._menu_rects, self._status_rows = [], None, [], [], []
         self._docs_rows = []
         self._notes_size = None
@@ -395,6 +401,11 @@ class Overlay:
             self._render_status()
         if self._want["docs"]:
             self._render_docs()
+        if self._want["ctl"]:
+            if not state.get("recording"):
+                self.close_ctl()
+            else:
+                self.ctl.render({"kind": "ctl", "side": self.side, "paused": bool(state.get("paused"))})
 
     # ---- persistence: which edge, how far down, which display (a small file next to config.toml)
     def _file(self) -> Path:
@@ -495,14 +506,25 @@ class Overlay:
         top, bottom = f.origin.y + f.size.height - a.get("top", 0), f.origin.y + f.size.height - a.get("bottom", 0)
         if kind == "notes":
             y = (top + bottom) / 2 - self._notes_size[1] / 2 if self._notes_size else (top + bottom) / 2 - h / 2  # bottom edge: as if it were the smallest size, it grows upwards
+        elif kind == "ctl":
+            y = (top + bottom) / 2 - h / 2  # level with the Stop button
+            x = f.origin.x - w + pad if self.side == "right" else f.origin.x + f.size.width - pad  # touching the bar
         elif kind in ("toast0", "toast1"):
             y = (top + bottom) / 2 + TOAST_ONE_LINE / 2 - h + pad  # a one-line toast is level with the microphone button; a longer one keeps its top edge there
+        elif kind == "tip" and self._tip_at:
+            x = self._tip_at[0] - pad if self._tip_at[2] == "left" else self._tip_at[0] - w + pad
+            y = self._tip_at[1] - h + pad  # under a card (the Pause / Cancel buttons)
         elif kind == "tip":
             y = (top + bottom) / 2 - h / 2  # level with the middle of its button
         elif kind in ("menu", "docs"):
             y = bottom - pad  # the menu's (or the documents list's) bottom edge lines up with its button's
         else:
             y = f.origin.y + f.size.height - h + pad  # the status panel's top edge lines up with the bar's
+        if kind == "tip" and self._tip_at:
+            self._popups[kind].panel.setFrame_display_(NSMakeRect(x, y, w, h), True)
+            if self._want[kind]:
+                self._popups[kind].show()
+            return
         x = min(max(x, v.origin.x - pad), v.origin.x + v.size.width - w + pad)
         y = min(max(y, v.origin.y - pad), v.origin.y + v.size.height - h + pad)
         self._popups[kind].panel.setFrame_display_(NSMakeRect(x, y, w, h), True)
@@ -519,7 +541,7 @@ class Overlay:
         op = msg["op"]
         if op == "size":
             self._place_popup(kind, float(msg["w"]), float(msg["h"]))
-        elif op == "rects" and kind in ("menu", "status", "docs"):
+        elif op == "rects" and kind in ("menu", "status", "docs", "ctl"):
             rows = [(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"]), int(r["i"])) for r in msg.get("rows", [])]
             if kind == "menu":
                 self._menu_rects = [(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"])) for r in msg.get("rects", [])]
@@ -528,6 +550,9 @@ class Overlay:
             elif kind == "docs":
                 self._docs_rows = rows
                 self._docs_pointer()
+            elif kind == "ctl":
+                self._ctl_rows = rows
+                self._ctl_pointer()
             else:
                 self._status_rows = rows
                 self._status_pointer()
@@ -536,6 +561,9 @@ class Overlay:
             self._render_docs()
         elif op == "docs_add":
             self.host.overlay_action("docs_add")
+        elif op in ("ctl_pause", "ctl_cancel"):
+            self.close_ctl()
+            self.host.overlay_action("pause" if op == "ctl_pause" else "cancel_rec")
         elif op == "docs_close":
             self.close_docs()
         elif op == "menu_click":
@@ -553,6 +581,7 @@ class Overlay:
         tip = self.host.overlay_tip(tip_id)
         if not tip:
             return
+        self._tip_at = None
         self._anchor["tip"] = {"top": top, "bottom": bottom}
         self._want["tip"] = True
         self.tip.render({"kind": "tip", "side": self.side, **tip})
@@ -602,6 +631,7 @@ class Overlay:
         return t
 
     def hide_tip(self) -> None:
+        self._tip_at = None
         self._want["tip"] = False
         self.tip.hide()
 
@@ -641,7 +671,7 @@ class Overlay:
             return
         p = NSEvent.mouseLocation()
         f = self.bar.panel.frame()
-        if (self._bar_hover is None and not self._want["menu"] and not self._want["status"] and not self._want["docs"] and self._poll is None
+        if (self._bar_hover is None and not self._want["menu"] and not self._want["status"] and not self._want["docs"] and not self._want["ctl"] and self._poll is None
                 and not (f.origin.x - 1 <= p.x <= f.origin.x + f.size.width + 1 and f.origin.y - 1 <= p.y <= f.origin.y + f.size.height + 1)):
             self._set_hand(False)
             return  # nowhere near us, nothing lit: nothing to do (this runs on every mouse move on the Mac)
@@ -657,7 +687,9 @@ class Overlay:
             if self._tip_timer is not None:
                 self._tip_timer.invalidate()
                 self._tip_timer = None
-            if hit:
+            if hit and hit[0] == "rec" and self._state.get("recording") and not self.hidden and not any(self._want[k] for k in ("menu", "notes", "docs", "status")):
+                self._ctl_hover_start(hit)  # resting on Stop opens Pause / Cancel (and no tooltip: it would sit in the same place)
+            elif hit:
                 # The tooltip is heavier (a panel is re-rendered, resized and moved). Sweeping across the toolbar would
                 # queue up one of those per button and hold back the highlight, so it waits until the pointer settles.
                 self._tip_timer = NSTimer.timerWithTimeInterval_repeats_block_(0.05, False, lambda t, h=hit: self._tip_due(h))
@@ -670,12 +702,16 @@ class Overlay:
             self._status_pointer()
         if self._want["docs"]:
             self._docs_pointer()
+        if self._want["ctl"]:
+            self._ctl_pointer()
+            self._ctl_check_leave(hit)
         # Mouse-moved events can be coalesced or delayed when the mouse moves fast, so while the pointer is over one of
         # our panels its position is also read 60 times a second: the highlight then always catches up.
         hand = hit is not None or (self._want["menu"] and self._menu_hover >= 0) or (self._want["status"] and self._status_hover >= 0) \
-            or (self._want["docs"] and self._docs_hover >= 0)
+            or (self._want["docs"] and self._docs_hover >= 0) \
+            or (self._want["ctl"] and self._ctl_hover >= 0)
         self._set_hand(hand)
-        over = hit is not None or (self._want["menu"] and self._over(self.menu)) or (self._want["status"] and self._over(self.status)) or (self._want["docs"] and self._over(self.docs))
+        over = hit is not None or (self._want["menu"] and self._over(self.menu)) or (self._want["status"] and self._over(self.status)) or (self._want["docs"] and self._over(self.docs)) or (self._want["ctl"] and self._over(self.ctl))
         if over and self._poll is None:
             self._poll = NSTimer.timerWithTimeInterval_repeats_block_(1 / 60, True, lambda t: self._pointer_moved())
             NSRunLoop.mainRunLoop().addTimer_forMode_(self._poll, NSRunLoopCommonModes)
@@ -701,6 +737,72 @@ class Overlay:
         self._tip_timer = None
         if self._bar_hover == hit[0]:
             self.show_tip(hit[0], hit[1], hit[2])
+
+    # ---- Pause / Cancel, attached to the Stop button while recording
+    def _ctl_hover_start(self, hit) -> None:
+        if self._want["ctl"]:
+            return
+        if self._ctl_timer is not None:
+            self._ctl_timer.invalidate()
+        self._ctl_timer = self._later(0.3, lambda: self._ctl_due(hit))
+
+    def _ctl_due(self, hit) -> None:
+        self._ctl_timer = None
+        if self._bar_hover == "rec" and self._state.get("recording"):
+            self.open_ctl(hit[1], hit[2])
+
+    def open_ctl(self, top: float, bottom: float) -> None:
+        self.hide_tip()
+        self._anchor["ctl"] = {"top": top, "bottom": bottom}
+        self._want["ctl"] = True
+        self._ctl_hover = -2
+        self.ctl.render({"kind": "ctl", "side": self.side, "paused": bool(self._state.get("paused"))})
+        self._pointer_moved()
+
+    def close_ctl(self) -> None:
+        for t in (self._ctl_timer, self._ctl_leave):
+            if t is not None:
+                t.invalidate()
+        self._ctl_timer = self._ctl_leave = None
+        if not self._want["ctl"]:
+            return
+        self._want["ctl"] = False
+        self.ctl.hide()
+        if self._ctl_hover >= 0:
+            self.hide_tip()
+        self._ctl_hover = -2
+
+    def _ctl_check_leave(self, hit) -> None:
+        """Close a beat after the pointer has left both the Stop button and the Pause / Cancel bar."""
+        inside = (hit is not None and hit[0] == "rec") or self._over(self.ctl)
+        if inside:
+            if self._ctl_leave is not None:
+                self._ctl_leave.invalidate()
+                self._ctl_leave = None
+        elif self._ctl_leave is None:
+            self._ctl_leave = self._later(0.25, self.close_ctl)
+
+    def _ctl_pointer(self) -> None:
+        if not self._want["ctl"]:
+            return
+        p = NSEvent.mouseLocation()
+        f = self.ctl.panel.frame()
+        row = next((i for x, y, w, h, i in self._ctl_rows
+                    if f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y), -1)
+        if row != self._ctl_hover:
+            self._ctl_hover = row
+            self.ctl.eval(f"window.__setHoverRow && window.__setHoverRow({row})")
+            if row < 0:
+                self.hide_tip()
+                return
+            first = self._ctl_rows[0]
+            paused = bool(self._state.get("paused"))
+            text = ("Resume recording" if paused else "Pause recording") if row == first[4] else "Cancel recording…"
+            right = self.side == "right"
+            edge = f.origin.x + f.size.width - 14 if right else f.origin.x + 14  # the card's outer edge (14: the panel's padding)
+            self._tip_at = (edge, f.origin.y + f.size.height - (first[1] + first[3]) - 8, "right" if right else "left")  # under the bar, lined up with its far edge
+            self._want["tip"] = True
+            self.tip.render({"kind": "tip", "side": self.side, "text": text})
 
     def _status_pointer(self) -> None:
         if not self._want["status"]:
@@ -914,6 +1016,7 @@ class Overlay:
         self.status.render({"kind": "status", "side": self.side, **data})
 
     def close_popups(self) -> None:
+        self.close_ctl()
         self.close_docs()
         self.close_notes()
         self.hide_tip()

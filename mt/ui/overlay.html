@@ -154,8 +154,10 @@
     $("dot").style.display = showJob ? "none" : "";
     $("glyph").style.display = showJob ? "block" : "none";
     let label = rec ? "Stop and summarize" : "Start recording", timer = "Ready";
+    const paused = rec && !!s.paused;  // a real pause: amber, and the timer stands still
+    $("dot").style.background = paused ? "#ffb340" : "";
     if (rec) {
-      setRing("#ff453a", 1, "#ff453a");
+      setRing(paused ? "#ffb340" : "#ff453a", 1, paused ? "#ffb340" : "#ff453a");
       timer = mmss(s.elapsed);
     } else if (!job) {
       setRing("#f2f2f5", 0, "#f2f2f5");
@@ -171,7 +173,7 @@
     }
     $("rec").setAttribute("aria-label", label);
     $("timer").textContent = timer;
-    $("timer").style.color = !rec && job && job.stage !== "done" && job.stage !== "failed" ? "#64a8ff" : "";
+    $("timer").style.color = paused ? "#ffb340" : !rec && job && job.stage !== "done" && job.stage !== "failed" ? "#64a8ff" : "";
     const b = $("badge");
     b.style.display = rec && s.busy > 0 ? "flex" : "none";
     b.textContent = s.busy;
@@ -182,8 +184,8 @@
     $("perm").setAttribute("aria-label", s.restart ? "Restart to apply the permission" : "Permissions needed");
     $("hide-chev").innerHTML = s.side === "left" ? '<path d="M15 6l-6 6 6 6"/>' : '<path d="M9 6l6 6-6 6"/>';  // points at the edge it collapses to
     $("more").classList.toggle("active", !!s.menuOpen);  // lit while its menu is open
-    $("shot").classList.toggle("off", !rec);
-    $("shot").setAttribute("aria-disabled", rec ? "false" : "true");
+    $("shot").classList.toggle("off", !rec || paused);  // no screenshots while paused: the screen could show private things
+    $("shot").setAttribute("aria-disabled", rec && !paused ? "false" : "true");
     $("notes").classList.toggle("off", !rec);
     $("notes").classList.toggle("active", !!s.notesOpen);  // lit while its panel is open
     $("notes").setAttribute("aria-disabled", rec ? "false" : "true");
@@ -196,6 +198,7 @@
     $("ndot").style.display = rec && s.notesLines > 0 ? "block" : "none";  // this meeting has notes
     for (const [id, muted, what] of [["mic", s.micMuted, "microphone"], ["sys", s.sysMuted, "system audio"]]) {
       $(id).classList.toggle("muted", !!muted);
+      $(id).classList.toggle("off", paused);  // greyed while paused; the mute you had comes back on resume
       $(id).setAttribute("aria-label", (muted ? "Unmute " : "Mute ") + what);
     }
 
@@ -204,7 +207,7 @@
     tab.className = "tab " + (s.side === "left" ? "edge-left" : "edge-right");
     $("tab-chev").innerHTML = s.side === "left" ? '<path d="M9 6l6 6-6 6"/>' : '<path d="M15 6l-6 6 6 6"/>';
     const dot = $("tab-dot");
-    if (rec) { dot.style.cssText = "background:#ff453a"; }
+    if (rec) { dot.style.cssText = "background:" + (paused ? "#ffb340" : "#ff453a"); }
     else if (job && job.stage === "done") { dot.style.cssText = "background:#30d158"; }
     else if (job && job.stage === "failed") { dot.style.cssText = "background:#ff453a"; }
     else if (job) { dot.style.cssText = "background:#64a8ff"; }
@@ -228,12 +231,12 @@
     if (!state.recording && state.job) post({ op: "status" });
     else post({ op: "toggle" });
   };
-  $("shot").onclick = () => { hideTip(); if (state.recording) post({ op: "shot" }); };
+  $("shot").onclick = () => { hideTip(); if (state.recording && !state.paused) post({ op: "shot" }); };
   $("notes").onclick = () => { hideTip(); if (state.recording) post({ op: "notes" }); };
   $("docadd").onclick = () => { hideTip(); if (state.recording) post({ op: "docs_add" }); };
   $("doclist").onclick = () => { hideTip(); if (state.recording) post({ op: "docs" }); };
-  $("mic").onclick = () => { hideTip(); post({ op: "mute_mic" }); };
-  $("sys").onclick = () => { hideTip(); post({ op: "mute_system" }); };
+  $("mic").onclick = () => { hideTip(); if (!state.paused) post({ op: "mute_mic" }); };
+  $("sys").onclick = () => { hideTip(); if (!state.paused) post({ op: "mute_system" }); };
   $("perm").onclick = () => { hideTip(); post({ op: "perm" }); };
   $("quit").onclick = () => { hideTip(); post({ op: "quit" }); };
   $("hide").onclick = () => { hideTip(); post({ op: "hide" }); };

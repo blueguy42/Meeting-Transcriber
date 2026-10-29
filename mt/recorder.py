@@ -142,6 +142,38 @@ def _make_resampler(src: int, dst: int):
     return run
 
 
+def cut_wav(path: Path, first: float, spans: list) -> None:
+    """Remove the paused stretches from a recording that kept running through them (the system audio helper cannot be
+    told to stop writing). `first` is the wall-clock time of its first sample, `spans` the (start, end) wall-clock pauses."""
+    with wave.open(str(path), "rb") as r:
+        params, rate, total = r.getparams(), r.getframerate(), r.getnframes()
+        cuts: list[list[int]] = []
+        for a, b in sorted(spans):
+            x, y = max(int(round((a - first) * rate)), 0), min(int(round((b - first) * rate)), total)
+            if y > x:
+                if cuts and x <= cuts[-1][1]:
+                    cuts[-1][1] = max(cuts[-1][1], y)
+                else:
+                    cuts.append([x, y])
+        if not cuts:
+            return
+        tmp = path.with_name(path.stem + ".cut.wav")
+        with wave.open(str(tmp), "wb") as w:
+            w.setparams(params)
+            pos = 0
+            for x, y in [*cuts, [total, total]]:
+                r.setpos(pos)
+                left = x - pos
+                while left > 0:
+                    chunk = r.readframes(min(left, 1 << 16))
+                    if not chunk:
+                        break
+                    w.writeframes(chunk)
+                    left -= len(chunk) // (params.sampwidth * params.nchannels)
+                pos = y
+    tmp.replace(path)
+
+
 class Recorder:
     def __init__(self, cfg: dict, on_warning=print):
         self.cfg = cfg
@@ -175,6 +207,9 @@ class Recorder:
         self._mute_start: dict[str, float | None] = {"mic": None, "system": None}  # wall clock, while muted
         self._mute_spans: dict[str, list[tuple[float, float]]] = {"mic": [], "system": []}
         self._mute_lock = threading.Lock()
+        self.paused = False  # a real pause: nothing is recorded, and the time does not count
+        self._pauses: list[tuple[float, float]] = []  # wall-clock spans of finished pauses
+        self._pause_start: float | None = None
 
     @property
     def recording(self) -> bool:
@@ -198,6 +233,7 @@ class Recorder:
         # mutes are set any time and carry over: one that is on at the start counts from the start
         self._mute_start = {"mic": self.t0 if self.mic_muted else None, "system": self.t0 if self.sys_muted else None}
         self._mute_spans = {"mic": [], "system": []}
+        self.paused, self._pauses, self._pause_start = False, [], None
         try:
             self._start_capture(d)
         except Exception:
@@ -257,6 +293,8 @@ class Recorder:
         def cb(indata, frames, time_info, status):
             now = time.time()
             self._mic_last = now
+            if self.paused:  # nothing is written while paused: the file just carries on afterwards
+                return
             if self.mic_first is None:
                 self.mic_first = now
             pcm = indata[:, 0] if resampler else indata  # fallback path may deliver several channels
@@ -264,7 +302,7 @@ class Recorder:
                 pcm = resampler(pcm)
             if self._mic_resync:  # reopened after a device change: keep the file aligned with the clock
                 self._mic_resync = False
-                gap = int((now - self.mic_first) * SR) - self._mic_written - len(pcm)
+                gap = int((self._active(now) - self._active(self.mic_first)) * SR) - self._mic_written - len(pcm)
                 if gap > 0:
                     self._q.put(bytes(gap * 2))
                     self._mic_written += gap
@@ -388,7 +426,7 @@ class Recorder:
         Returns False if the system audio helper is running but can't be reached."""
         with self._mute_lock:
             if track == "system":
-                if self.recording and not self._send_helper("MUTE" if muted else "UNMUTE"):
+                if self.recording and not self.paused and not self._send_helper("MUTE" if muted else "UNMUTE"):  # paused: the helper stays silent until resume
                     return False
                 self.sys_muted = muted
             else:
@@ -403,6 +441,59 @@ class Recorder:
                 self._mute_start[track] = None
         return True
 
+    # ---- pause: nothing is recorded, and the paused time is not counted (see _active)
+    def _active(self, t: float) -> float:
+        """The wall clock at t minus the time spent paused before it: the recording's own clock."""
+        spans = list(self._pauses)
+        if self._pause_start is not None:
+            spans.append((self._pause_start, float("inf")))
+        return t - sum(max(0.0, min(t, b) - a) for a, b in spans)
+
+    def elapsed(self) -> float:
+        """Seconds of recording so far, not counting pauses (what the timer, notes and screenshots use)."""
+        return max(self._active(time.time()) - self.t0, 0.0) if self.recording else 0.0
+
+    def pause(self) -> bool:
+        """Stop recording until resume(). The microphone stops writing; the system audio helper writes silence that is cut
+        out when the recording ends. False if it can't be done."""
+        with self._mute_lock:
+            if not self.recording or self.paused:
+                return False
+            if self._proc is not None and not self._send_helper("MUTE"):
+                return False
+            self._pause_start = time.time()
+            self.paused = True
+        return True
+
+    def resume(self) -> bool:
+        with self._mute_lock:
+            if not self.recording or not self.paused:
+                return False
+            now = time.time()
+            if self._proc is not None:
+                self._send_helper("MUTE" if self.sys_muted else "UNMUTE")  # back to the mute you had set
+            self._pauses.append((self._pause_start, now))
+            self._pause_start, self.paused = None, False
+            self._mic_resync = True  # the clock moved on without the file: no padding for the paused time
+        return True
+
+    def cancel(self) -> Path | None:
+        """Stop and throw the recording away: the meeting folder is deleted. Returns the folder that was deleted."""
+        if not self.recording:
+            return None
+        d = self.dir
+        try:
+            self._close()
+        finally:
+            self.dir, self.paused, self._pause_start = None, False, None
+        root = Path(self.cfg["meetings_dir"]).resolve()
+        if d.resolve().parent == root:  # only ever a meeting folder inside the meetings folder
+            shutil.rmtree(d, ignore_errors=True)
+        return d
+
+    def _rel(self, t: float, origin: float) -> float:
+        return max(self._active(t) - self._active(origin), 0.0)
+
     def _mute_meta(self, origin: float, end: float) -> dict:
         """Mute spans as seconds from the recording origin: the same clock as the transcript timestamps."""
         out = {}
@@ -410,7 +501,7 @@ class Recorder:
             spans = list(self._mute_spans[track])
             if self._mute_start[track] is not None:  # still muted when recording stopped
                 spans.append((self._mute_start[track], end))
-            out[f"{track}_muted"] = [[round(max(a - origin, 0), 1), round(max(b - origin, 0), 1)] for a, b in spans]
+            out[f"{track}_muted"] = [[round(self._rel(a, origin), 1), round(self._rel(b, origin), 1)] for a, b in spans]
         return out
 
     def _read_helper(self):
@@ -508,7 +599,7 @@ class Recorder:
             else:
                 out.append(e)
         return [
-            {"at": round(max(e["t"] - origin, 0), 1), **{k: v for k, v in e.items() if k != "t" and v is not None}}
+            {"at": round(self._rel(e["t"], origin), 1), **{k: v for k, v in e.items() if k != "t" and v is not None}}
             for e in out
         ]
 
@@ -517,13 +608,21 @@ class Recorder:
             raise RuntimeError("not recording")
         d = self.dir
         try:
+            end = time.time()
+            if self.paused:  # stopped while paused: the pause ends here
+                self._pauses.append((self._pause_start, end))
+                self._pause_start, self.paused = None, False
             self._close()
             firsts = [t for t in (self.mic_first, self.sys_first) if t]
             origin = min(firsts) if firsts else self.t0
-            end = time.time()
+            if self.sys_first and self._pauses:  # the helper kept writing (silence) through the pauses: cut them out
+                try:
+                    cut_wav(d / RECORDINGS / "system.wav", self.sys_first, self._pauses)
+                except Exception as e:
+                    self.warn(f"could not remove the paused parts of the system audio: {e}")
             meta = {
                 "started": datetime.fromtimestamp(self.t0).isoformat(timespec="seconds"),
-                "duration": round(end - origin, 1),
+                "duration": round(self._rel(end, origin), 1),
                 "origin_delay": round(origin - self.t0, 3),  # screenshot clock starts at t0, audio at origin
                 "mic_offset": round(self.mic_first - origin, 3) if self.mic_first else None,
                 "system_offset": round(self.sys_first - origin, 3) if self.sys_first else None,
@@ -531,6 +630,8 @@ class Recorder:
             }
             meta["mic_device"] = self._mic_start_device  # default input / output when recording started
             meta["system_device"] = self._system_start_device
+            if self._pauses:  # "at": recording time of the pause, "for": seconds not recorded
+                meta["paused"] = [{"at": round(self._rel(a, origin), 1), "for": round(b - a, 1)} for a, b in self._pauses]
             events = self._device_events(origin)
             if events:
                 meta["device_events"] = events

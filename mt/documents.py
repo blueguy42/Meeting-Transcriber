@@ -413,6 +413,13 @@ def process(meeting_dir: Path, doc: dict, on_change=lambda: None) -> None:
         _cancelled.discard(doc_id)
 
 
+def cancel_all(meeting_dir: Path) -> None:
+    """The meeting is being thrown away: documents still being read stop at their next check."""
+    for d in load(meeting_dir):
+        if d.get("status") in ("queued", "reading"):
+            _cancelled.add(d["id"])
+
+
 class DocumentWorker:
     """Reads documents one at a time, at low priority, so recording and transcription stay smooth."""
 

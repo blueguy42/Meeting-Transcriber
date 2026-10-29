@@ -56,8 +56,9 @@ def notify(title, subtitle, message=""):
     on_main(show)
 
 
-def alert(title: str, message: str, ok: str = "OK", cancel: str | None = None) -> bool:
-    """A modal dialog. True if the first button (ok) was pressed."""
+def alert(title: str, message: str, ok: str = "OK", cancel: str | None = None, destructive_second: bool = False):
+    """A modal dialog. True if the first button (ok) was pressed. With destructive_second the answer is "first" or "second"
+    instead, and the second button is drawn as the dangerous one (the first stays the default)."""
     from AppKit import NSAlert
 
     a = NSAlert.alloc().init()
@@ -69,6 +70,12 @@ def alert(title: str, message: str, ok: str = "OK", cancel: str | None = None) -
     a.addButtonWithTitle_(ok)
     if cancel:
         a.addButtonWithTitle_(cancel)
+    if destructive_second:
+        try:
+            a.buttons()[1].setHasDestructiveAction_(True)
+        except Exception:
+            pass
+        return "first" if a.runModal() == 1000 else "second"
     return a.runModal() == 1000  # NSAlertFirstButtonReturn
 
 
@@ -280,7 +287,8 @@ class App:
         show = next((j for j in jobs if j["state"] == "active"), None) or next((j for j in jobs if j["state"] == "queued"), None) or (jobs[-1] if jobs else None)
         return {
             "recording": self.rec.recording,
-            "elapsed": int(time.time() - self.started) if self.rec.recording else 0,
+            "elapsed": int(self.rec.elapsed()),  # recording time: a pause is not counted
+            "paused": bool(self.rec.paused),
             "notesLines": notes.line_count(self._notes_text) if self.rec.recording else 0,
             "docsCount": documents.count(self.rec.dir) if self.rec.recording else 0,
             "docsReady": sum(1 for d in documents.load(self.rec.dir) if d.get("status") == "ready") if self.rec.recording else 0,
@@ -309,7 +317,8 @@ class App:
                 self.quit(None)
 
     def overlay_action(self, op):
-        {"toggle": self.toggle, "shot": self.shot, "notes": self.toggle_notes, "docs_add": self.add_documents, "mute_mic": self.toggle_mic, "mute_system": self.toggle_system, "perm": self.fix_permissions, "quit": self.confirm_quit}[op](None)
+        {"toggle": self.toggle, "shot": self.shot, "notes": self.toggle_notes, "docs_add": self.add_documents, "mute_mic": self.toggle_mic, "mute_system": self.toggle_system, "perm": self.fix_permissions, "quit": self.confirm_quit,
+         "pause": self.toggle_pause, "cancel_rec": self.cancel_recording}[op](None)
         self._push_overlay()
 
     def overlay_tip(self, tip_id):
@@ -475,7 +484,50 @@ class App:
             log.exception("Record toggle failed")
         self._push_overlay()
 
+    def toggle_pause(self, _):
+        """Pause the recording (nothing is recorded, and the time does not count) or resume it."""
+        if not self.rec.recording:
+            return
+        if self.rec.paused:
+            if self.rec.resume():
+                log.info("Recording resumed")
+                self._status("Recording…")
+        else:
+            if self._selector is not None:
+                self._selector.cancel()
+            if self.rec.pause():
+                log.info("Recording paused")
+                self._status("Paused")
+            else:
+                notify("Meeting Transcriber", "Can't pause", "The system audio helper isn't responding.")
+        self._push_overlay()
+
+    def cancel_recording(self, _):
+        """Ask, then throw the recording away: the meeting folder is deleted and nothing is summarized."""
+        if not self.rec.recording:
+            return
+        bring_to_front()
+        if not alert("Cancel this recording?", "The recording so far, with its notes, screenshots and documents, will be deleted from your Mac. "
+                     "This cannot be undone.", ok="Keep recording", cancel="Delete recording", destructive_second=True) == "second":
+            return
+        if not self.rec.recording:  # it ended while the question was open
+            return
+        meeting = self.rec.dir
+        log.info("Recording cancelled and deleted: %s", meeting)
+        if self._selector is not None:
+            self._selector.cancel()
+        if self._overlay is not None:
+            self._overlay.close_popups()  # (the notes panel is closed without saving into the folder that is about to go)
+            self._overlay.reset_notes()
+        documents.cancel_all(meeting)  # readers still at work stop instead of recreating files
+        self.rec.cancel()
+        self._notes_text, self._notes_dir = "", None
+        self._status("Recording cancelled")
+        self._push_overlay()
+
     def _toggle_mute(self, track, label):
+        if self.rec.paused:  # greyed while paused
+            return
         muted = not (self.rec.mic_muted if track == "mic" else self.rec.sys_muted)
         if not self.rec.set_muted(track, muted):
             notify("Meeting Transcriber", f"Can't mute {label}", "The system audio helper isn't responding.")
@@ -492,7 +544,7 @@ class App:
 
     def shot(self, _):
         """Freeze the screen under the mouse, let you choose an area, and save only that area (see screenshot.py)."""
-        if not self.rec.recording or self._selector is not None:
+        if not self.rec.recording or self.rec.paused or self._selector is not None:  # no screenshots while paused
             return
         try:
             self.rec.require_screen_access()
@@ -503,7 +555,7 @@ class App:
         except Exception as e:
             notify("Meeting Transcriber", "Screenshot failed", str(e))
             return
-        secs = time.time() - self.rec.t0  # the moment the screen froze: what the transcript marker says
+        secs = self.rec.elapsed()  # the moment the screen froze, in recording time: what the transcript marker says
         if self._overlay is not None:
             self._overlay.close_popups()
 
@@ -548,7 +600,7 @@ class App:
                 self._reload_cfg()
             except Exception:
                 log.exception("Could not save the OCR setting")
-        new, skipped = documents.add(meeting, [Path(p) for p in paths], int(time.time() - self.started), ocr_on)
+        new, skipped = documents.add(meeting, [Path(p) for p in paths], int(self.rec.elapsed()), ocr_on)
         if skipped:
             notify("Meeting Transcriber", "Some documents were not added", "; ".join(skipped)[:220])
         if new:

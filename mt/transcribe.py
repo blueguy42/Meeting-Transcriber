@@ -369,6 +369,17 @@ def mute_events(muted: dict, duration: float) -> list:
     return events
 
 
+def pause_events(paused: list, duration: float) -> list:
+    """Transcript lines at each pause (the audio has no gap there: the time was not recorded)."""
+    events = []
+    for p in paused:
+        at = float(p["at"])
+        events.append((at, f"[{fmt_ts(at)}] (Recording paused)"))
+        if at < duration - 0.5:  # a pause that lasted to the end has no resume
+            events.append((at, f"[{fmt_ts(at)}] (Recording resumed)"))
+    return events
+
+
 def unmuted(audio: np.ndarray, offset: float, spans: list) -> np.ndarray:
     """The audio outside the muted spans. Spans are in seconds from the recording origin; the track starts at `offset`."""
     keep = np.ones(len(audio), dtype=bool)
@@ -503,7 +514,8 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
     events = sorted(
         [(s["start"], f"[{fmt_ts(s['start'])}] {s['speaker']}: {s['text']}") for s in merged]
         + [(s["start"], f"[{fmt_ts(s['start'])}] (screenshot: {s['shot']})") for s in shots]
-        + mute_events(muted, meta["duration"]),
+        + mute_events(muted, meta["duration"])
+        + pause_events(meta.get("paused") or [], meta["duration"]),
         key=lambda e: e[0],
     )
     out = meeting_dir / "transcript.md"
