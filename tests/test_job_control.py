@@ -169,6 +169,20 @@ class JobStates(unittest.TestCase):
         t.dismiss(i)
         self.assertEqual(t.snapshot(), [])
 
+    def test_dismiss_removes_finished_failed_and_cancelled_tabs_but_not_running_ones(self):
+        t = Tracker(("Me", "Others"))
+        a = t.add(Path("/m/2026-10-29_1000"), summarize=True)
+        b = t.add(Path("/m/2026-10-29_1100"), summarize=True)
+        c = t.add(Path("/m/2026-10-29_1200"), summarize=True)
+        d = t.add(Path("/m/2026-10-29_1300"), summarize=True)
+        t.begin(a)
+        t.finish(b, Path("/m/x"), Path("/m/x/summary.md"))
+        t.fail(c, "boom")
+        t.dismiss(a)  # running: stays
+        t.dismiss(b)
+        t.dismiss(c)
+        self.assertEqual(sorted(j["id"] for j in t.snapshot()), sorted([a, d]))
+
     def test_a_paused_job_can_be_cancelled_and_a_waiting_one_too(self):
         t, i = self.tracker()
         t.pause(i)

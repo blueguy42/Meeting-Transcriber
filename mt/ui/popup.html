@@ -42,7 +42,29 @@
   .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 12px; border-radius: 8px; margin: 0 4px; cursor: pointer; white-space: nowrap; }
   .row.hov, .row.open { background: rgba(255,255,255,.12); }
   .sep { height: 1px; background: rgba(255,255,255,.12); margin: 4px 8px; }
-  .status { width: 240px; padding: 12px 14px; }
+  .status { width: 320px; padding: 6px 8px; display: flex; flex-direction: column; }
+  .status .rows { margin-right: -5px; }  /* the scrollbar's 5px gutter sits in the card's padding, so the buttons never move */
+  .hd { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 2px 6px; font-size: 12px; color: #a9aab4; flex: none; }
+  .hd .x { width: 28px; height: 28px; border-radius: 8px; }
+  .tb2 + .tb2 { border-top: 1px solid rgba(255,255,255,.1); }
+  .th { display: flex; align-items: center; gap: 8px; padding: 8px 4px 8px 6px; border-radius: 9px; cursor: pointer; }
+  .th.hov { background: rgba(255,255,255,.08); }
+  .th .chev { flex: none; width: 12px; margin-right: -2px; color: #8d8e98; display: flex; }
+  .th .si { flex: none; width: 18px; display: flex; justify-content: center; }
+  .th .tt { flex: 1; min-width: 0; }
+  .th .tt b { display: block; font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .th .tt small { display: block; font-size: 12px; color: #a9aab4; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .th .tt small.amb { color: #ffb340; }
+  .th .tt small.red { color: #ff8a80; }
+  .th .tt small.grn { color: #7be495; }
+  .ib { display: flex; gap: 2px; flex: none; }
+  .ib i { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #c9cad2; font-style: normal; cursor: pointer; }
+  .ib i.hov { background: rgba(255,255,255,.14); color: #fff; }
+  .ib i.amb { color: #ffb340; }
+  .ib i.red { color: #ff8a80; }
+  .ib i.red.hov { background: rgba(255,69,58,.2); }
+  .tbody { padding: 0 6px 8px 24px; }  /* the steps' icons line up with the tab's status icon, not its arrow */
+  .tfoot { flex: none; padding: 4px 6px 4px; }
   .head { display: flex; align-items: center; justify-content: space-between; margin: -4px -6px 4px 0; min-height: 24px; }
   .head span { font-size: 12px; color: #a9aab4; }
   .x { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #a9aab4; display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -187,22 +209,74 @@
     }).join("");
   }
 
+  // ---- the processing panel: one tab per meeting, newest first. Clicking a tab's row opens or closes it (one open at a time,
+  // none is allowed); the icon buttons on its right act without opening it. Until you open or close a tab yourself the
+  // meeting being processed is open; after that your choice stays.
+  let openJob = null, touched = false;
+  const IC = (path, fill) => '<svg width="16" height="16" viewBox="0 0 24 24" fill="' + (fill ? "currentColor" : "none") + '" stroke="' + (fill ? "none" : "currentColor") + '" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + path + "</svg>";
+  const I_PAUSE = IC('<rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/>', true);
+  const I_PLAY = IC('<path d="M8 5.5v13l11-6.5z"/>', true);
+  const I_X = IC('<path d="M6 6l12 12M18 6L6 18"/>').replace('stroke-width="1.9"', 'stroke-width="2.4"');
+  const I_DOC = IC('<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h7M9 16h5"/>');
+  const I_FOLDER = IC('<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>');
+  const I_AGAIN = IC('<path d="M20 12a8 8 0 1 1-2.5-5.8"/><path d="M20 4v5h-5"/>');
+  const CHEV_C = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>';
+  const CHEV_O = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>';
+  const S_FAIL = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#ff453a" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v9M12 18v1"/></svg>';
+  const hhmm = (t) => { const d = new Date(t * 1000); return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); };
+
+  function tabInfo(j) {  // the status icon, the one-line status and the icon buttons of a meeting's tab
+    const cur = j.steps.find((st) => st.state === "now" || st.state === "paused");
+    const btn = (act, tip, icon, cls) => ({ act, tip, icon, cls: cls || "" });
+    if (j.state === "queued") return { si: '<span class="ring"></span>', line: j.stopping ? "Cancelling…" : "Waiting for the meeting before it", cls: "", btns: j.stopping ? [] : [btn("cancel", "Cancel", I_X, "red")] };
+    if (j.state === "paused") return { si: PAUSE_S, line: "Paused at " + (cur ? cur.label : "…"), cls: "amb", btns: [btn("resume", "Resume", I_PLAY, "amb"), btn("cancel", "Cancel", I_X, "red")] };
+    if (j.state === "done") return { si: CHECK, line: "Done" + (j.finished ? " · " + hhmm(j.finished) : ""), cls: "grn", btns: [btn("summary", "Open summary", I_DOC), btn("folder", "Show folder", I_FOLDER), btn("dismiss", "Dismiss", I_X)] };
+    if (j.state === "failed") return { si: S_FAIL, line: "Failed · " + (j.error || "see the folder"), cls: "red", btns: [btn("again", "Process again", I_AGAIN), btn("folder", "Show folder", I_FOLDER), btn("dismiss", "Dismiss", I_X)] };
+    if (j.state === "cancelled") return { si: X_S, line: "Cancelled · the recording is kept", cls: "red", btns: [btn("again", "Process again", I_AGAIN), btn("dismiss", "Dismiss", I_X)] };
+    let line = cur ? cur.label : "Working";  // running
+    const kid = cur && (cur.children || []).find((c) => c.state === "now" && c.sub);
+    if (kid) line += " · " + kid.sub; else if (cur && cur.sub) line += " · " + cur.sub;
+    if (j.stopping) return { si: '<span class="spin"></span>', line: j.stopping === "cancel" ? "Stopping…" : "Pausing…", cls: "", btns: [] };
+    return { si: '<span class="spin"></span>', line, cls: "", btns: [btn("pause", "Pause", I_PAUSE), btn("cancel", "Cancel", I_X, "red")] };
+  }
+
+  function openOf(jobs) {
+    if (touched) return jobs.some((j) => j.id === openJob) ? openJob : null;
+    if (jobs.length === 1) return jobs[0].id;
+    const run = jobs.find((j) => j.state === "active");
+    return run ? run.id : null;
+  }
+
   function renderStatus(s) {
-    const jobs = s.jobs.map((j, i) => {
-      let body;
-      const btn = (act, label, cls, icon) => '<button class="b ' + cls + '" data-act="' + act + '" data-job="' + j.id + '">' + (icon ? '<span class="bi">' + icon + "</span>" : "") + label + "</button>";
-      const stopping = j.stopping === "cancel" ? "Stopping…" : j.stopping === "pause" ? "Pausing…" : "";
-      if (j.state === "queued") body = '<div class="step todo"><span class="ic"><span class="ring"></span></span><div>' + (j.stopping ? "Cancelling…" : "Waiting for the meeting before it") + "</div></div>" + (j.stopping ? "" : '<div class="btns">' + btn("cancel", "Cancel", "cn", X_B) + "</div>");
-      else if (j.state === "paused") body = '<div class="ptag">Paused at ' + esc((j.steps.find((s) => s.state === "paused") || { label: "…" }).label) + "</div>" + renderSteps(j) + (j.note ? '<div class="snote">' + esc(j.note) + "</div>" : "") + '<div class="btns">' + btn("resume", "Resume", "pz", PLAY_B) + btn("cancel", "Cancel", "cn", X_B) + "</div>";
-      else if (j.state === "cancelled") body = '<div class="ptag red">Cancelled · the recording is kept</div>' + renderSteps(j) + '<div class="btns">' + btn("again", "Process again", "", "") + btn("dismiss", "Dismiss", "", "") + "</div>";
-      else if (j.state === "failed") body = '<div class="err">' + esc(j.error || "Processing failed.") + '</div><div class="btns"><button class="b" data-act="folder" data-job="' + j.id + '">Open folder</button></div>';
-      else if (j.state === "done") body = renderSteps(j) + '<div class="btns"><button class="b main" data-act="summary" data-job="' + j.id + '">Summary</button><button class="b" data-act="folder" data-job="' + j.id + '">Folder</button></div>';
-      else body = renderSteps(j) + (j.state === "active" ? (stopping ? '<div class="snote">' + stopping + "</div>" : '<div class="btns">' + btn("pause", "Pause", "pz", PAUSE_B) + btn("cancel", "Cancel", "cn", X_B) + "</div>") : "");
-      return '<div class="job"><div class="jname">' + esc(j.name) + "</div>" + body + "</div>";
+    const open = openOf(s.jobs);
+    const tabs = s.jobs.slice().reverse().map((j) => {
+      const t = tabInfo(j), isOpen = j.id === open;
+      const buttons = t.btns.length ? '<div class="ib">' + t.btns.map((b) => '<i class="' + b.cls + '" data-act="' + b.act + '" data-job="' + j.id + '" data-tip="' + esc(b.tip) + '" role="button" aria-label="' + esc(b.tip) + '">' + b.icon + "</i>").join("") + "</div>" : "";
+      const head = '<div class="th" tabindex="0" role="button" aria-expanded="' + isOpen + '" data-tab="' + j.id + '"><span class="chev">' + (isOpen ? CHEV_O : CHEV_C) + '</span><span class="si">' + t.si + '</span><div class="tt"><b>' + esc(j.name) + '</b><small class="' + t.cls + '">' + esc(t.line) + "</small></div>" + buttons + "</div>";
+      let body = "";
+      if (isOpen) {
+        if (j.state === "failed") body = '<div class="err">' + esc(j.error || "Processing failed.") + "</div>";
+        else body = renderSteps(j) + (j.state === "paused" && j.note ? '<div class="snote">' + esc(j.note) + "</div>" : "");
+      }
+      return '<div class="tb2" data-job="' + j.id + '">' + head + (body ? '<div class="tbody">' + body + "</div>" : "") + "</div>";
     }).join("");
     const foot = s.canRecord ? '<div class="btns"><button class="b" data-act="record">Start a new recording</button></div>' : "";
-    return '<div class="card status"><div class="head"><span>' + (s.jobs.length > 1 ? s.jobs.length + " meetings" : "Processing") + '</span><button class="x" data-act="close" aria-label="Close status">' + CLOSE + "</button></div>" + jobs + foot +
-      '<div class="note">Meetings are processed one at a time. You can record while they run.</div></div>';
+    const max = s.maxH ? "max-height:" + Math.max(160, Math.floor(s.maxH)) + "px" : "";
+    return '<div class="card status" style="' + max + '"><div class="hd"><span>' + (s.jobs.length > 1 ? s.jobs.length + " meetings" : "Processing") + '</span><button class="x" data-act="close" aria-label="Close status">' + CLOSE + "</button></div>" +
+      '<div class="rows">' + tabs + '</div><div class="tfoot">' + foot + '<div class="note">Meetings are processed one at a time. You can record while they run.</div></div></div>';
+  }
+
+  function toggleTab(id) {
+    const wasOpen = openOf(spec.jobs) === id;  // (before your choice starts to count)
+    touched = true;
+    openJob = wasOpen ? null : id;
+    const scroll = wrap.querySelector(".rows"), keep = scroll ? scroll.scrollTop : 0;
+    hov = null;
+    wrap.innerHTML = renderStatus(spec);
+    const again = wrap.querySelector(".rows");
+    if (again) { again.scrollTop = keep; const t = again.querySelector('.tb2[data-job="' + openJob + '"]'); if (t) t.scrollIntoView({ block: "nearest" }); }
+    lastJson = "";
+    report();
   }
 
   const TRASH = '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>';
@@ -289,8 +363,12 @@
 
   function report() {
     const r = wrap.getBoundingClientRect();
-    lastSize = Math.ceil(r.width) + "x" + Math.ceil(r.height);
-    post({ op: "size", w: Math.ceil(r.width), h: Math.ceil(r.height) });
+    let h = Math.ceil(r.height);
+    // The processing panel's window is always as tall as it can ever be: opening or closing a tab only changes what is drawn
+    // inside it, never the window (resizing a web view flickers). Python lets clicks through everywhere but the card.
+    if (spec && spec.kind === "status" && spec.maxH) h = Math.max(h, Math.floor(spec.maxH) + 28);
+    lastSize = Math.ceil(r.width) + "x" + h;
+    post({ op: "size", w: Math.ceil(r.width), h });
     postRects();
   }
 
@@ -304,7 +382,7 @@
   function postRects() {
     if (!spec) return;
     const list = [];
-    if (spec.kind === "menu") {
+    if (spec.kind === "menu" || spec.kind === "status") {
       wrap.querySelectorAll(".card").forEach((el) => {
         if (getComputedStyle(el).visibility === "hidden") return;
         const r = el.getBoundingClientRect();
@@ -312,7 +390,7 @@
       });
     }
     const rows = [];
-    wrap.querySelectorAll(".row, .b, .x, .tr, .cb").forEach((el, i) => {
+    wrap.querySelectorAll(".row, .b, .x, .tr, .cb, .th, .ib i").forEach((el, i) => {
       el.dataset.hi = i;
       const card = el.closest(".card");
       if (!card || getComputedStyle(card).visibility === "hidden") return;
@@ -322,8 +400,9 @@
         const b = box.getBoundingClientRect();
         if (r.bottom < b.top + 2 || r.top > b.bottom - 2) return;
       }
-      rows.push({ i, x: r.x, y: r.y, w: r.width, h: r.height });
+      rows.push({ i, x: r.x, y: r.y, w: r.width, h: r.height, tip: el.dataset.tip || "" });
     });
+    rows.sort((a, b) => a.w * a.h - b.w * b.h);  // a tab's icon buttons sit inside its row: the smaller one wins when the pointer is on both
     post({ op: "rects", rects: list, rows });
   }
 
@@ -339,8 +418,9 @@
   };
 
   wrap.addEventListener("click", (e) => {
-    const row = e.target.closest(".row, .b, .x, .tr, .cb");
+    const row = e.target.closest(".row, .b, .x, .tr, .cb, .th, .ib i");
     if (!row || !spec) return;
+    if (spec.kind === "status" && row.dataset.tab) { toggleTab(Number(row.dataset.tab)); return; }
     if (spec.kind === "ctl") { if (row.dataset.act) post({ op: "ctl_" + row.dataset.act }); return; }
     if (spec.kind === "docs") { if (row.dataset.act) post({ op: row.dataset.act, id: row.dataset.id || null }); return; }
     if (row.dataset.sub) { setSub(true); return; }
@@ -348,7 +428,7 @@
     else if (row.dataset.act) post({ op: "status_" + row.dataset.act, id: row.dataset.job ? Number(row.dataset.job) : null });
   });
   wrap.addEventListener("keydown", (e) => {
-    if ((e.key === "Enter" || e.key === " ") && e.target.classList.contains("row")) { e.preventDefault(); e.target.click(); }
+    if ((e.key === "Enter" || e.key === " ") && (e.target.classList.contains("row") || e.target.classList.contains("th"))) { e.preventDefault(); e.target.click(); }
   });
 
   document.addEventListener("click", (e) => { const b = e.target.closest("button, .row"); if (b) b.blur(); }, true);

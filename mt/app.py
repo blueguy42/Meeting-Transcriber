@@ -298,7 +298,7 @@ class App:
             "docsReady": sum(1 for d in documents.load(self.rec.dir) if d.get("status") == "ready") if self.rec.recording else 0,
             "micMuted": bool(self.rec.mic_muted),
             "sysMuted": bool(self.rec.sys_muted),
-            "busy": self.jobs.busy,
+            "busy": len(jobs),  # the badge counts the tabs in the processing panel (so a paused or finished one can still be reopened)
             "perm": bool(self._missing),
             "restart": self._restart_pending(),
             "job": {"stage": show["stage"], "progress": show["progress"]} if show else None,
@@ -423,11 +423,9 @@ class App:
     def overlay_status_action(self, act, job_id):
         job = next((j for j in self.jobs.snapshot() if j["id"] == job_id), None)
         if act == "summary" and job and job["out"]:
-            subprocess.run(["open", job["out"]])
-            self.jobs.acknowledge(job_id)
+            subprocess.run(["open", job["out"]])  # (the tab stays: only Dismiss, or ten minutes after finishing, removes it)
         elif act == "folder" and job:
             subprocess.run(["open", job.get("folder") or str(self.cfg["meetings_dir"])])
-            self.jobs.acknowledge(job_id)
         elif act == "pause" and job and job["state"] == "active":
             ctrl = self._controls.get(job_id)
             if ctrl is not None and ctrl.stop("pause"):
@@ -436,14 +434,14 @@ class App:
             self._resume_job(job_id)
         elif act == "cancel" and job:
             self._cancel_job(job_id, job)
-        elif act == "again" and job and job["state"] == "cancelled":
+        elif act == "again" and job and job["state"] in ("cancelled", "failed"):  # (a finished transcript is kept)
             self._process_again(job)
         elif act == "dismiss" and job:
             self.jobs.dismiss(job_id)
         elif act == "record" and not self.rec.recording:
             self.toggle(None)
         elif act == "close":
-            self.jobs.acknowledge()  # finished results are dismissed; running ones carry on
+            pass  # × only hides the panel; every tab is still there when it is opened again
 
     def _open_status(self):
         if self._overlay is not None and not self._overlay.hidden:

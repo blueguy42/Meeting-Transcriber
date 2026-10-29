@@ -129,6 +129,34 @@ class _OverlayBridge(NSObject, protocols=[objc.protocolNamed("WKScriptMessageHan
         self._owner._receive(str(message.body()))
 
 
+def allow_cursor_in_background() -> bool:
+    """Let this app change the mouse cursor while another app is in front.
+
+    macOS ignores NSCursor.set() from an app that is not active, and these panels never make the app active (so they never
+    interrupt a call): the pointing hand worked only until you clicked another window. The window server has a per-app switch
+    for this, "SetsCursorInBackground" (private, but long stable); without it everything else still works, just without the hand."""
+    try:
+        import ctypes
+
+        cg = ctypes.CDLL("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics")
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+        cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+        cg.CGSMainConnectionID.restype = ctypes.c_int
+        cg.CGSSetConnectionProperty.argtypes = [ctypes.c_int, ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p]
+        cg.CGSSetConnectionProperty.restype = ctypes.c_int
+        cid = cg.CGSMainConnectionID()
+        key = cf.CFStringCreateWithCString(None, b"SetsCursorInBackground", 0x08000100)  # UTF-8
+        yes = ctypes.c_void_p.in_dll(cf, "kCFBooleanTrue")
+        ok = cg.CGSSetConnectionProperty(cid, cid, key, yes) == 0
+        if not ok:
+            log.warning("Could not let the app set the cursor while in the background")
+        return ok
+    except Exception:
+        log.exception("Could not let the app set the cursor while in the background")
+        return False
+
+
 def _js(value) -> str:
     return json.dumps(value, ensure_ascii=False).replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
 
@@ -284,6 +312,7 @@ def _find_screen(screen_id) -> NSScreen:
 class Overlay:
     def __init__(self, host):
         self.host = host
+        allow_cursor_in_background()  # the pointing hand must also show while another app is in front
         self.side = "right"  # which screen edge the bar is on ("left" or "right")
         self.hidden = False  # collapsed to the slim edge tab
         self.top = None  # distance from the top of the usable screen area to the top of the bar
@@ -304,6 +333,8 @@ class Overlay:
         self._tip_timer = None  # the tooltip waits a beat after the pointer settles, see _pointer_moved
         self._poll = None  # a 60 Hz look at the pointer while it is over one of our panels
         self._status_rows = []
+        self._status_cards = []  # the processing panel's card (the window is taller than the card: the rest lets clicks through)
+        self._status_tips = {}
         self._status_hover = -2
         self._menu_hover = -2  # the row the pointer is over (-1: none)
         # Mouse-moved events reach a tooltip-style panel late or in clumps, but the app-wide monitors get them
@@ -512,8 +543,14 @@ class Overlay:
         elif kind in ("toast0", "toast1"):
             y = (top + bottom) / 2 + TOAST_ONE_LINE / 2 - h + pad  # a one-line toast is level with the microphone button; a longer one keeps its top edge there
         elif kind == "tip" and self._tip_at:
-            x = self._tip_at[0] - pad if self._tip_at[2] == "left" else self._tip_at[0] - w + pad
-            y = self._tip_at[1] - h + pad  # under a card (the Pause / Cancel buttons)
+            if self._tip_at[2] == "center":
+                x = self._tip_at[0] - w / 2
+                y = self._tip_at[1] - h + pad  # a few pixels under the icon
+                if y < v.origin.y:  # no room below: above it
+                    y = self._tip_at[3] - pad
+            else:
+                x = self._tip_at[0] - pad if self._tip_at[2] == "left" else self._tip_at[0] - w + pad
+                y = self._tip_at[1] - h + pad  # under a card (the Pause / Cancel buttons)
         elif kind == "tip":
             y = (top + bottom) / 2 - h / 2  # level with the middle of its button
         elif kind in ("menu", "docs"):
@@ -554,7 +591,10 @@ class Overlay:
                 self._ctl_rows = rows
                 self._ctl_pointer()
             else:
+                self._status_cards = [(float(r["x"]), float(r["y"]), float(r["w"]), float(r["h"])) for r in msg.get("rects", [])]
                 self._status_rows = rows
+                self._status_hover = -2  # the page was redrawn: light the row under the pointer again, and its tooltip
+                self._status_tips = {int(r["i"]): str(r.get("tip", "")) for r in msg.get("rows", []) if r.get("tip")}  # the icon buttons' tooltips
                 self._status_pointer()
         elif op == "docs_delete":
             self.host.overlay_docs_action("delete", str(msg.get("id")))
@@ -809,11 +849,23 @@ class Overlay:
             return
         p = NSEvent.mouseLocation()
         f = self.status.panel.frame()
+        inside = any(f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y
+                     for x, y, w, h in self._status_cards)
+        if bool(self.status.panel.ignoresMouseEvents()) == inside:  # only touch the window when it actually changes
+            self.status.panel.setIgnoresMouseEvents_(not inside)
         row = next((i for x, y, w, h, i in self._status_rows
                     if f.origin.x + x <= p.x <= f.origin.x + x + w and f.origin.y + f.size.height - (y + h) <= p.y <= f.origin.y + f.size.height - y), -1)
         if row != self._status_hover:
             self._status_hover = row
             self.status.eval(f"window.__setHoverRow && window.__setHoverRow({row})")
+            tip = self._status_tips.get(row)
+            if tip:  # an icon button: its tooltip, centred under it (above it if there is no room)
+                x, y, w, h, _i = next(r for r in self._status_rows if r[4] == row)
+                self._tip_at = (f.origin.x + x + w / 2, f.origin.y + f.size.height - (y + h) - 4, "center", f.origin.y + f.size.height - y + 4)
+                self._want["tip"] = True
+                self.tip.render({"kind": "tip", "side": self.side, "text": tip})
+            elif self._tip_at is not None:
+                self.hide_tip()
 
     def _menu_passthrough(self) -> None:
         """Let clicks through the menu panel everywhere except over the menu (and its submenu)."""
@@ -999,6 +1051,7 @@ class Overlay:
         self._anchor["status"] = {}
         self._want["status"] = True
         self._status_hover = -2
+        self.status.panel.setIgnoresMouseEvents_(True)  # until the pointer is over the card (see _status_pointer)
         self._render_status()
 
     def toggle_status(self) -> None:
@@ -1013,7 +1066,7 @@ class Overlay:
         if not data["jobs"]:
             self.close_status()
             return
-        self.status.render({"kind": "status", "side": self.side, **data})
+        self.status.render({"kind": "status", "side": self.side, "maxH": self._bar_frame().size.height, **data})  # never taller than the toolbar: past that the tabs scroll
 
     def close_popups(self) -> None:
         self.close_ctl()

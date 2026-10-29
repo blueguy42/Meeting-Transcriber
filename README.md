@@ -317,8 +317,26 @@ documents*) and saving. When it is done you get **Summary** and **Folder** butto
   <img src="docs/screenshots/processing.png" alt="Progress panel: transcribing, telling speakers apart, summarizing, done, failed" width="800">
 </p>
 
-**Pause or cancel processing.** Every meeting in the panel has **Pause** and **Cancel** buttons (a meeting still waiting only has
-Cancel). Pause stops the current step within a second or two and shows **Paused at <step>**; **Resume** carries on, and a paused
+**One tab per meeting.** The processing panel is a stack of tabs, newest on top: a status icon, the meeting's name, what it is doing
+("Transcribing · 62%", "Waiting…", "Done · 15:42") and small icon buttons on the right. Click a tab to open it and see its steps
+(click it again to close it; only one is open at a time, and none is fine). The meeting being processed opens by itself until you open
+or close a tab yourself. **×** only hides the panel: no button removes a tab except **Dismiss** (finished ones also go after 10
+minutes), and the panel disappears for good only when no tab is left. The panel is never taller than the toolbar: with more tabs than fit, they scroll. Hover an icon for its name.
+
+| Meeting is… | Icon buttons |
+|---|---|
+| running | Pause, Cancel |
+| paused | Resume, Cancel |
+| waiting | Cancel |
+| done | Open summary, Show folder, Dismiss (opening keeps the tab) |
+| failed | Process again, Show folder, Dismiss |
+| cancelled | Process again, Dismiss |
+
+<p align="center">
+  <img src="docs/screenshots/processing-tabs.png" alt="The processing panel as one tab per meeting: collapsed and open tabs, the icon buttons by state, and scrolling" width="900">
+</p>
+
+**Pause or cancel processing.** Pause stops the current step within a second or two and shows **Paused at <step>**; **Resume** carries on, and a paused
 meeting does not hold up the next one. Transcribing keeps its place (it continues from the last speech burst); telling speakers
 apart and summarizing start their step again (the transcript is kept). **Cancel** asks first, because the current step's progress is
 lost; the recording is always kept, and the cancelled row offers **Process again** or **Dismiss**. Saving the files can't be stopped,
@@ -328,7 +346,7 @@ it just finishes. A paused meeting is forgotten if you quit the app (the recordi
   <img src="docs/screenshots/processing-controls.png" alt="Processing: Pause, Resume and Cancel, the paused and cancelled states, and what each step does" width="900">
 </p>
 
-You can start a new recording right away; a blue badge counts the meetings still being processed, and they are handled **one
+You can start a new recording right away; a blue badge counts the tabs in the processing panel, and they are handled **one
 at a time**. The panel also shows meetings you re-process from the menu (**Transcribe a meeting…** has no "Recorded" step).
 
 The very first time (or if a half-finished download is found), the app first checks that the speech model is on your Mac and
@@ -561,6 +579,11 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   Tooltips float one level above popups, and the device-changed toast (`show_toast`, `mt/devicetoast.py` decides its wording) one above those.
   The recorder calls `on_device_change(track, device)` from its watcher threads; the app moves it to the main thread. The bar's position, hidden state and the notes panel size are kept in `overlay.json`
   next to `config.toml`.
+- Resizing a web view flickers, so the processing panel's window is always as tall as the toolbar and opening or closing a tab only changes what is drawn
+  inside it; the window ignores the mouse except over the card (like the More menu), so clicks reach the app behind.
+- The pointing hand over buttons is set by the app itself (`NSCursor.set()` from a global mouse monitor and a 60 Hz poll). macOS ignores that
+  from an app that is not active, and these panels never activate the app, so `allow_cursor_in_background()` switches on the window server's
+  per-app `SetsCursorInBackground` property (`CGSSetConnectionProperty`, private API, called once when the bar is created).
 - Because the app has no menu bar, it installs a small hidden Edit menu at start-up so ⌘A/C/V/X/Z reach text boxes.
 - Global hotkeys use Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission. Only the optional
   snapping to parts inside a window (`mt/snap.py`, `pyobjc-framework-ApplicationServices`) uses Accessibility; windows themselves come

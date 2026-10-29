@@ -194,10 +194,10 @@ class Tracker:
         self.on_change()
 
     def dismiss(self, job_id: int) -> None:
-        """Remove a cancelled meeting's row."""
+        """Remove a meeting's tab: a cancelled, failed or finished one (running and paused ones are not dismissed)."""
         with self._lock:
             job = next((j for j in self._jobs if j["id"] == job_id), None)
-            if job is not None and job["state"] == "cancelled":
+            if job is not None and job["state"] in ("cancelled", "done", "failed"):
                 job["seen"] = True
         self.on_change()
 
