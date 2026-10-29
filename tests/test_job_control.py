@@ -91,6 +91,40 @@ class Checkpoint(unittest.TestCase):
         self.assertFalse((d / transcribe.PARTIAL).exists())
 
 
+class Speakers(unittest.TestCase):
+    """A pause or cancel while speakers are being told apart must stop the job, not be reported as "speakers failed"."""
+
+    def fake_diarize(self, behaviour):
+        mod = SimpleNamespace(available=lambda: True, diarize=behaviour)
+        sys.modules["mt.diarize"] = mod
+        import mt
+
+        mt.diarize = mod
+        self.addCleanup(lambda: (sys.modules.pop("mt.diarize", None), setattr(mt, "diarize", None)))
+
+    def test_stopped_goes_on_up(self):
+        def stop(*a, **k):
+            raise control.Stopped("pause")
+
+        self.fake_diarize(stop)
+        notes = []
+        with self.assertRaises(control.Stopped):
+            transcribe.tell_speakers_apart([{"start": 0, "end": 1, "text": "x", "speaker": "Others"}], np.zeros(10), 0.0, "Others", {}, lambda m: None, notes)
+        self.assertEqual(notes, [])
+
+    def test_a_real_failure_keeps_the_transcript_and_says_why(self):
+        def boom(*a, **k):
+            raise RuntimeError("no models")
+
+        self.fake_diarize(boom)
+        notes, said = [], []
+        segs = [{"start": 0, "end": 1, "text": "x", "speaker": "Others"}]
+        out = transcribe.tell_speakers_apart(segs, np.zeros(10), 0.0, "Others", {}, said.append, notes)
+        self.assertEqual(out, segs)
+        self.assertTrue(notes and "no models" in notes[0])
+        self.assertTrue(said and said[0].startswith(progress.SPEAKERS_FAILED))
+
+
 class ClaudeProcess(unittest.TestCase):
     def test_a_cancel_kills_it_at_once(self):
         c = control.JobControl()

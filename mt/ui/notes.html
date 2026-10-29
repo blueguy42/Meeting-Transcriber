@@ -180,9 +180,21 @@
     return "[" + (h ? h + ":" + two(m) : two(m)) + ":" + two(r) + "]";
   }
   function addTime() {
+    const before = getSelection().rangeCount ? getSelection().getRangeAt(0) : null;
+    const inside = !!before && ed.contains(before.commonAncestorContainer);  // is there a caret in the notes?
     ed.focus();
     const t = stamp(nowSeconds());
-    document.execCommand("insertHTML", false, '<span class="ts" contenteditable="false" data-t="' + t + '"><span class="tv">' + t + "</span></span>&nbsp;");
+    // Not execCommand("insertHTML"): WebKit splits the line it is in and leaves a second, unstyled copy of the time at the start of
+    // the next one, whenever the caret is in a line that already has text and is not the first. The range API puts it exactly at the caret.
+    const sel = getSelection();
+    let r = sel.rangeCount ? sel.getRangeAt(0) : null;
+    if (!inside || !r) { r = document.createRange(); r.selectNodeContents(ed); r.collapse(false); }  // no caret in the notes: the end (focusing would put it at the start)
+    r.deleteContents();  // (a selection is replaced, as typing would)
+    const gap = document.createTextNode("\u00a0");
+    r.insertNode(gap);
+    r.insertNode(chip(t));
+    ed.normalize();  // the split left empty text nodes and the space beside the text that follows: one text node again (Backspace relies on it)
+    setCaret(gap, 1);
     changed();
   }
   $("addtime").addEventListener("mousedown", (e) => e.preventDefault());  // keep the cursor in the text

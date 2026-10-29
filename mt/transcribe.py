@@ -521,6 +521,27 @@ def transcribe_meeting(meeting_dir: Path, cfg: dict, progress=lambda msg: None) 
     return out
 
 
+def tell_speakers_apart(segs: list, audio: np.ndarray, offset: float, others: str, cfg: dict, progress, notes: list) -> list:
+    """Give each segment of the other people's track its speaker ("Others 1", "Others 2"...). A failure never loses the transcript:
+    the segments come back unchanged and a note says why. A pause or cancel (Stopped) is not a failure: it goes on up."""
+    try:
+        from . import diarize
+
+        if not diarize.available():
+            raise RuntimeError("the sherpa-onnx package is not installed (pip install sherpa-onnx)")
+        turns = diarize.diarize(audio, cfg.get("diarize_speakers", 0), progress)
+        out = label_speakers(segs, turns, offset, others)
+        progress(speakers_found(others, len({s["speaker"] for s in out})))
+        return out
+    except Stopped:
+        raise
+    except Exception as e:  # never lose the transcript because speakers could not be separated
+        msg = f"{SPEAKERS_FAILED}{str(e)[:150]}"
+        notes.append(f"⚠ {msg}")
+        progress(msg)
+        return segs
+
+
 def _transcribe_meeting(meeting_dir: Path, cfg: dict, progress, ck: Checkpoint) -> Path:
     meta = json.loads((meeting_dir / "meta.json").read_text())
     mine, others = cfg["my_label"], cfg["others_label"]
@@ -576,19 +597,7 @@ def _transcribe_meeting(meeting_dir: Path, cfg: dict, progress, ck: Checkpoint) 
         )
     segs[mine] = drop_echo(segs[mine], segs[others])
     if cfg.get("diarize") and others in tracks and segs[others]:
-        try:
-            from . import diarize
-
-            if not diarize.available():
-                raise RuntimeError("the sherpa-onnx package is not installed (pip install sherpa-onnx)")
-            turns = diarize.diarize(tracks[others][0], cfg.get("diarize_speakers", 0), progress)
-            segs[others] = label_speakers(segs[others], turns, tracks[others][1], others)
-            count = len({s["speaker"] for s in segs[others]})
-            progress(speakers_found(others, count))
-        except Exception as e:  # never lose the transcript because speakers could not be separated
-            msg = f"{SPEAKERS_FAILED}{str(e)[:150]}"
-            notes.append(f"⚠ {msg}")
-            progress(msg)
+        segs[others] = tell_speakers_apart(segs[others], tracks[others][0], tracks[others][1], others, cfg, progress, notes)
     merged = merge_segments(sorted(segs[mine] + segs[others], key=lambda s: s["start"]))
 
     shots = []
