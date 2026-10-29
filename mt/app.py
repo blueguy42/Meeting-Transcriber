@@ -21,6 +21,7 @@ from .hotkeys import Hotkeys
 from .jobs import Tracker
 from .audio import has_audio
 from .pipeline import process, summarize_existing, transcribe_existing
+from .devicetoast import DeviceToasts, TOAST_S
 from .recorder import Recorder
 from .summarize import notes_lines
 from .transcribe import transcript_file
@@ -107,6 +108,8 @@ class App:
         self._progress_throttle = mtlog.Throttle()
         log.info("Meetings folder: %s; permissions missing: %s", self.cfg["meetings_dir"], permissions.missing() or "none")
         self.rec = Recorder(self.cfg, on_warning=lambda m: notify("Meeting Transcriber", "Warning", m))
+        self._toasts = DeviceToasts()
+        self.rec.on_device_change = lambda track, device: on_main(self._device_toast, track, device)  # called from the recorder's watcher threads
         self.prompt = self.cfg["default_prompt"]
         self.started = 0.0
         self.pending = 0  # meetings waiting for / in processing
@@ -243,6 +246,12 @@ class App:
         self._push_overlay()
 
     # ---- floating bar (the Overlay asks us for content and tells us what you clicked: see overlay.py)
+    def _device_toast(self, track: str, device: str) -> None:
+        """The microphone or the sound output moved to another device while recording: say so beside the bar."""
+        overlay = getattr(self, "_overlay", None)
+        if overlay is not None and self.rec.recording:
+            overlay.show_toast(self._toasts.message(track, device), TOAST_S)
+
     def _overlay_state(self) -> dict:
         jobs = self.jobs.snapshot()
         show = next((j for j in jobs if j["state"] == "active"), None) or next((j for j in jobs if j["state"] == "queued"), None) or (jobs[-1] if jobs else None)

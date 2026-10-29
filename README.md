@@ -159,6 +159,16 @@ documents tooltip how many documents are read. Tooltips float above every popup.
 red line across it. Muted audio is replaced with silence before it is saved, so it cannot be recovered. The transcript marks
 the stretch as `(Me muted)` / `(Me unmuted)`.
 
+**Switching devices.** If your microphone or your speakers change while recording (AirPods connect, a headset is unplugged), a
+small notice appears beside the bar for 2 seconds, always in the same spot (level with the microphone button): **Mic: MacBook Pro Microphone**,
+**System: USB-C Headphones**, or **Mic and System: AirPods Pro** when one headset takes over both. If the mic and the speakers
+move to different devices within 2 seconds of each other, one notice has a line for each (**Mic: …** and **System: …**). A newer notice replaces the
+one showing: the old one fades out as the new one fades in. Clicks go straight through it.
+
+<p align="center">
+  <img src="docs/screenshots/device-toast.png" alt="The device-changed notice for the microphone, the system audio and both, beside the bar" width="900">
+</p>
+
 **Move it.** Drag the bar by its grip or any empty part. A dashed preview shows which screen edge it will snap to. It
 remembers where you left it. Menus and popups open on the side facing the middle of the screen.
 
@@ -523,7 +533,8 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   position (global and local mouse monitors, plus a 60 Hz poll while it is over a panel), tells the pages what is hovered and
   sets the pointing-hand cursor itself. Lists are updated in place, never redrawn under the pointer, so clicks are not lost.
 - Panels are hidden from screenshots with `NSWindowSharingNone` (the *Show the bar in screenshots* setting rebuilds them).
-  Tooltips float one level above popups. The bar's position, hidden state and the notes panel size are kept in `overlay.json`
+  Tooltips float one level above popups, and the device-changed toast (`show_toast`, `mt/devicetoast.py` decides its wording) one above those.
+  The recorder calls `on_device_change(track, device)` from its watcher threads; the app moves it to the main thread. The bar's position, hidden state and the notes panel size are kept in `overlay.json`
   next to `config.toml`.
 - Because the app has no menu bar, it installs a small hidden Edit menu at start-up so ⌘A/C/V/X/Z reach text boxes.
 - Global hotkeys use Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission. Only the optional
@@ -541,8 +552,12 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   the screen froze. The window is hidden from screen sharing (`NSWindowSharingNone`), sits above the bar, and hands the keyboard
   back to the meeting app when it closes. A white flash confirms each added screenshot.
 - **`meta.json`** stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
-  `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device_events` when the microphone changed
-  mid-recording (`changed` / `stalled`, `reopened` with the new device name).
+  `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device` / `system_device` (the default
+  input / output device when the recording started) and `device_events` when either changed mid-recording (a device plugged in or
+  out, or a new one picked in System Settings). Each entry has `at` (seconds from the start), `track` (`mic`, `system` or `mic+system`
+  when both moved to the same device within 2 s, as a headset does) and `event`: `switched` to the named `device`, or for the mic also `stalled` (the same mic stopped
+  delivering and was reopened), `lost` (no mic left) and `restored`. System audio is captured from the display, so it keeps
+  recording across an output change.
 - **Muting** replaces audio with silence at the source (zeros in the mic callback; `--muted` flag plus `MUTE`/`UNMUTE`
   commands on the `sck-audio` helper's stdin). Files keep running, so they stay aligned with the clock and screenshots.
 - **Notes:** the page is a `contenteditable` box; a timestamp is a non-editable chip written out as `[mm:ss]` (`[h:mm:ss]` from

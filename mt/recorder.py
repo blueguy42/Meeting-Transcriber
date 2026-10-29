@@ -64,20 +64,61 @@ def _screen_access() -> bool:
     return False
 
 
-def _default_input_id() -> int | None:
-    """CoreAudio's current default input device id (cheap; PortAudio's own device list is a stale snapshot)."""
+def _coreaudio():
+    import ctypes
+
+    return ctypes.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
+
+
+def _audio_prop(ca, dev: int, selector: int, out, scope: int = 0x676C6F62) -> bool:
+    import ctypes
+
+    class Addr(ctypes.Structure):
+        _fields_ = [("selector", ctypes.c_uint32), ("scope", ctypes.c_uint32), ("element", ctypes.c_uint32)]
+
+    addr = Addr(selector, scope, 0)  # scope 'glob' = global, element = main
+    size = ctypes.c_uint32(ctypes.sizeof(out))
+    return ca.AudioObjectGetPropertyData(dev, ctypes.byref(addr), 0, None, ctypes.byref(size), ctypes.byref(out)) == 0
+
+
+def _default_device_id(selector: int) -> int | None:
     try:
         import ctypes
 
-        ca = ctypes.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
+        dev = ctypes.c_uint32(0)
+        ok = _audio_prop(_coreaudio(), 1, selector, dev)  # 1 = the system object
+        return dev.value if ok and dev.value else None
+    except Exception:
+        return None
 
-        class Addr(ctypes.Structure):
-            _fields_ = [("selector", ctypes.c_uint32), ("scope", ctypes.c_uint32), ("element", ctypes.c_uint32)]
 
-        addr = Addr(0x64496E20, 0x676C6F62, 0)  # 'dIn ' (default input), 'glob', main element
-        dev, size = ctypes.c_uint32(0), ctypes.c_uint32(4)
-        err = ca.AudioObjectGetPropertyData(1, ctypes.byref(addr), 0, None, ctypes.byref(size), ctypes.byref(dev))
-        return dev.value if err == 0 and dev.value else None
+def _default_input_id() -> int | None:
+    """CoreAudio's current default input device id (cheap; PortAudio's own device list is a stale snapshot)."""
+    return _default_device_id(0x64496E20)  # 'dIn '
+
+
+def _default_output_id() -> int | None:
+    """CoreAudio's current default output device id (what system audio is played through)."""
+    return _default_device_id(0x644F7574)  # 'dOut'
+
+
+def _device_name(dev: int | None) -> str | None:
+    """Human-readable name of a CoreAudio device id."""
+    if not dev:
+        return None
+    try:
+        import ctypes
+
+        ref = ctypes.c_void_p()
+        if not _audio_prop(_coreaudio(), dev, 0x6C6E616D, ref):  # 'lnam' (kAudioObjectPropertyName)
+            return None
+        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        cf.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+        cf.CFRelease.argtypes = [ctypes.c_void_p]
+        buf = ctypes.create_string_buffer(256)
+        ok = cf.CFStringGetCString(ref, buf, len(buf), 0x08000100)  # UTF-8
+        cf.CFRelease(ref)
+        return buf.value.decode() if ok else None
     except Exception:
         return None
 
@@ -123,6 +164,11 @@ class Recorder:
         self._mic_resync = False  # stream was reopened: pad the gap with silence
         self._mic_lost = False
         self._mic_events: list[dict] = []  # device changes during the recording (wall clock)
+        self._out_watcher: threading.Thread | None = None
+        self.on_device_change = None  # ("mic" | "system", device name): called from a watcher thread when the device was switched
+        self._mic_start_device: str | None = None  # default input / output when the recording started
+        self._system_start_device: str | None = None
+        self._system_events: list[dict] = []  # default output changes during the recording (wall clock)
         self.shot_count = 0
         self.mic_muted = False
         self.sys_muted = False
@@ -192,6 +238,12 @@ class Recorder:
         self._mic_resync = False
         self._mic_lost = False
         self._mic_events = []
+        self._system_events = []
+        self._mic_start_device = _device_name(_default_input_id())
+        self._system_start_device = _device_name(_default_output_id())
+        if helper is not None:
+            self._out_watcher = threading.Thread(target=self._watch_output, daemon=True)
+            self._out_watcher.start()
         if self._open_mic():
             self._mic_watcher = threading.Thread(target=self._watch_mic, daemon=True)
             self._mic_watcher.start()
@@ -258,6 +310,7 @@ class Recorder:
         The gap is filled with silence so mic.wav stays aligned with the clock and the system track."""
         import sounddevice as sd
 
+        pending = None  # the switch / stall being handled, logged once the mic is open again
         while not self._mic_stop.wait(1.0):
             with self._mic_lock:
                 if self._mic_stop.is_set():
@@ -272,7 +325,7 @@ class Recorder:
                 else:
                     continue
                 if reason != "retry":
-                    self._mic_events.append({"t": time.time(), "event": reason})  # changed / stalled
+                    pending = {"t": time.time(), "event": "switched" if reason == "changed" else "stalled"}
                     self._drop_mic()
                     if not self._mic_lost:
                         self.warn("microphone changed or disconnected - reopening")
@@ -290,9 +343,36 @@ class Recorder:
                         name = sd.query_devices(kind="input")["name"]
                     except Exception:
                         name = None
-                    self._mic_events.append({"t": time.time(), "event": "reopened", "device": name})
+                    if pending is None:  # back after a spell with no mic
+                        pending = {"t": time.time(), "event": "restored"}
+                    self._mic_events.append({**pending, "device": name})
+                    if pending["event"] in ("switched", "restored"):
+                        self._device_changed("mic", name)
+                    pending = None
                 else:
+                    if not self._mic_lost:  # one entry per outage, not one per retry
+                        self._mic_events.append({**pending, "event": "lost"})
+                    pending = None
                     self._mic_lost = True
+
+    def _device_changed(self, track: str, name: str | None) -> None:
+        if name and self.on_device_change is not None:
+            try:
+                self.on_device_change(track, name)
+            except Exception:
+                pass
+
+    def _watch_output(self) -> None:
+        """Log changes of the default output device. System audio is captured from the whole display, so
+        it keeps recording across a change; this only notes which device it was playing through."""
+        cur = _default_output_id()
+        while not self._mic_stop.wait(1.0):
+            new = _default_output_id()
+            if new is not None and new != cur:
+                cur = new
+                name = _device_name(new)
+                self._system_events.append({"t": time.time(), "event": "switched", "device": name})
+                self._device_changed("system", name)
 
     # ---- mute: the audio is replaced by silence at the source, so what was said is never saved
     def _send_helper(self, command: str) -> bool:
@@ -386,6 +466,9 @@ class Recorder:
         if self._mic_watcher is not None:
             self._mic_watcher.join(timeout=10)
             self._mic_watcher = None
+        if self._out_watcher is not None:
+            self._out_watcher.join(timeout=5)
+            self._out_watcher = None
         with self._mic_lock:
             self._drop_mic()
         if self._writer is not None:
@@ -406,6 +489,29 @@ class Recorder:
                 self._proc.kill()
             self._proc = None
 
+    def _device_events(self, origin: float) -> list[dict]:
+        """Mic and system device changes in one list, in seconds from the recording origin. A mic and a system
+        switch to the same device within 2 s of each other (a headset plugged in moves both) become one "mic+system" entry."""
+        evs = [{**e, "track": "mic"} for e in self._mic_events] + [{**e, "track": "system"} for e in self._system_events]
+        evs.sort(key=lambda e: e["t"])
+        out: list[dict] = []
+        for e in evs:
+            prev = out[-1] if out else None
+            if (
+                prev
+                and {prev["track"], e["track"]} == {"mic", "system"}
+                and prev["event"] == e["event"] == "switched"
+                and prev.get("device") == e.get("device")
+                and e["t"] - prev["t"] <= 2
+            ):
+                out[-1] = {**prev, "track": "mic+system"}
+            else:
+                out.append(e)
+        return [
+            {"at": round(max(e["t"] - origin, 0), 1), **{k: v for k, v in e.items() if k != "t" and v is not None}}
+            for e in out
+        ]
+
     def stop(self) -> Path:
         if not self.recording:
             raise RuntimeError("not recording")
@@ -423,11 +529,11 @@ class Recorder:
                 "system_offset": round(self.sys_first - origin, 3) if self.sys_first else None,
                 **self._mute_meta(origin, end),
             }
-            if self._mic_events:  # seconds from the recording origin, like the mute spans
-                meta["mic_device_events"] = [
-                    {**{k: v for k, v in e.items() if k != "t"}, "at": round(max(e["t"] - origin, 0), 1)}
-                    for e in self._mic_events
-                ]
+            meta["mic_device"] = self._mic_start_device  # default input / output when recording started
+            meta["system_device"] = self._system_start_device
+            events = self._device_events(origin)
+            if events:
+                meta["device_events"] = events
             (d / "meta.json").write_text(json.dumps(meta, indent=2))
         finally:
             self.dir = None

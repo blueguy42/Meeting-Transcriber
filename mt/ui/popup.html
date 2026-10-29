@@ -15,6 +15,19 @@
   .tip .li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
   .tip .li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ffb340; flex: none; }  /* amber, like the warning button */
   .k { color: #a9aab4; margin-left: 8px; }
+  /* the device-changed toast: one line, an icon, "Mic: device" */
+  .toast { display: flex; align-items: center; gap: 10px; padding: 9px 14px 9px 9px; white-space: nowrap; border-radius: 12px; transition: opacity .25s; }
+  .toast { animation: toastin .25s; }
+  @keyframes toastin { from { opacity: 0; } to { opacity: 1; } }
+  .toast.fade { opacity: 0; animation: none; }
+  .toast .ic { flex: none; width: 32px; height: 32px; border-radius: 9px; background: rgba(100,168,255,.18); color: #9dc0ff; display: flex; align-items: center; justify-content: center; }
+  .toast .l { color: #a9aab4; }
+  .toast b { color: #fff; font-weight: 600; }
+  .toast .two { position: relative; width: 28px; height: 28px; }
+  .toast .two svg { position: absolute; }
+  .toast .two svg:nth-child(1) { left: 0; top: 0; }
+  .toast .two svg:nth-child(3) { right: 0; bottom: 0; }
+  .toast .two i { position: absolute; left: 50%; top: 1px; bottom: 1px; width: 1.5px; margin-left: -.75px; background: #9dc0ff; opacity: .7; transform: rotate(45deg); border-radius: 1px; }
   .menu { width: 210px; padding: 6px 0; }
   .sub { margin-top: 7px; min-width: 170px; padding: 6px 0; visibility: hidden; }
   .sub.on { visibility: visible; }
@@ -97,6 +110,17 @@
       return '<div class="card tip"><div class="tt">' + esc(s.text) + "</div>" + s.items.map((i) => '<div class="li">' + esc(i) + "</div>").join("") + "</div>";
     }
     return '<div class="card tip">' + esc(s.text) + (s.hotkey ? '<span class="k">' + esc(s.hotkey) + "</span>" : "") + "</div>";
+  }
+
+  const SVG = (w, body) => '<svg width="' + w + '" height="' + w + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + body + "</svg>";
+  const ICON_MIC = (w) => SVG(w, '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/>');
+  const ICON_SYS = (w) => SVG(w, '<path d="M4 10v4h4l5 4V6L8 10z"/><path d="M16.5 9a4 4 0 0 1 0 6M19 6.5a8 8 0 0 1 0 11"/>');
+
+  function renderToast(s) {  // s.lines: [{who: "Mic" | "System" | "Mic and System", device}]; two lines: one toast for both
+    const one = s.lines.length === 1 ? s.lines[0].who : "Mic and System";
+    const icon = one === "Mic" ? ICON_MIC(18) : one === "System" ? ICON_SYS(18) : '<span class="two">' + ICON_MIC(13) + "<i></i>" + ICON_SYS(13) + "</span>";
+    const text = s.lines.map((l) => '<div><span class="l">' + esc(l.who) + ":</span> <b>" + esc(l.device) + "</b></div>").join("");
+    return '<div class="card toast"><span class="ic">' + icon + '</span><div style="line-height:1.4">' + text + "</div></div>";
   }
 
   function renderMenu(s) {
@@ -208,7 +232,7 @@
     spec = { ...s, fresh: false };
     hov = null;
     const scroll = wrap.querySelector(".rows"), keep = scroll ? scroll.scrollTop : 0;
-    wrap.innerHTML = s.kind === "tip" ? renderTip(s) : s.kind === "menu" ? renderMenu(s) : s.kind === "docs" ? renderDocs(s) : renderStatus(s);
+    wrap.innerHTML = s.kind === "tip" ? renderTip(s) : s.kind === "toast" ? renderToast(s) : s.kind === "menu" ? renderMenu(s) : s.kind === "docs" ? renderDocs(s) : renderStatus(s);
     const again = wrap.querySelector(".rows");
     if (again && keep) again.scrollTop = keep;  // the list is redrawn every second while files are being read: stay where you were
     report();
@@ -221,6 +245,7 @@
     postRects();
   }
 
+  window.__fade = function () { const t = wrap.querySelector(".toast"); if (t) t.classList.add("fade"); };
   window.addEventListener("resize", () => postRects());
   wrap.addEventListener("scroll", () => postRects(), true);  // scrolling the documents list moves the rows  // the panel was resized to fit: positions changed
 

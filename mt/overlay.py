@@ -53,6 +53,8 @@ NONACTIVATING_PANEL = 1 << 7
 STATUS_LEVEL = 25  # NSStatusWindowLevel: above normal windows and the Dock
 MARGIN = 24  # gap between the bar and the screen edge
 GAP = 8  # gap between the bar and a popup
+TOAST_ONE_LINE = 52.0  # a one-line toast's card height
+FADE_S = 0.25  # a toast fades in and out this long
 POPUP_PAD = 14.0  # transparent border around a popup's cards (room for their CSS shadow), see popup.html
 CLICK_MASK = (1 << 1) | (1 << 3) | (1 << 25)  # left, right, other mouse down
 MOVE_MASK = 1 << 5  # mouse moved
@@ -311,7 +313,9 @@ class Overlay:
             NSEvent.addGlobalMonitorForEventsMatchingMask_handler_(MOVE_MASK, lambda e: self._pointer_moved()),
             NSEvent.addLocalMonitorForEventsMatchingMask_handler_(MOVE_MASK, lambda e: (self._pointer_moved(), e)[1]),
         ]
-        self._want = {"tip": False, "menu": False, "status": False, "notes": False, "docs": False}
+        self._want = {"tip": False, "menu": False, "status": False, "notes": False, "docs": False, "toast0": False, "toast1": False}
+        self._toast_cur = 1  # which toast panel shows the current toast
+        self._toast_timers = {"toast0": [], "toast1": []}  # each panel's fade and hide
         self._docs_rows = []
         self._docs_hover = -2
         self._hand = False  # the pointing-hand cursor is showing (over a button in the bar or one of its popups)
@@ -327,8 +331,10 @@ class Overlay:
         self.menu = _Surface("popup.html", lambda m: self._on_popup("menu", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved(), on_hand=lambda: self._hand, capturable=cap)
         self.status = _Surface("popup.html", lambda m: self._on_popup("status", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved(), on_hand=lambda: self._hand, capturable=cap)
         self.docs = _Surface("popup.html", lambda m: self._on_popup("docs", m), level=STATUS_LEVEL + 1, shadow=False, on_pointer=lambda: self._pointer_moved(), on_hand=lambda: self._hand, capturable=cap)
+        # two toast panels, used in turn: a new toast appears on one while the old one fades out on the other
+        self.toasts = [_Surface("popup.html", lambda m, k=k: self._on_popup(k, m), level=STATUS_LEVEL + 3, ignore_mouse=True, shadow=False, capturable=cap) for k in ("toast0", "toast1")]  # above tooltips; clicks go through
         self.notes = _Surface("notes.html", self._on_notes, level=STATUS_LEVEL + 1, shadow=False, capturable=cap, can_key=True)
-        self._popups = {"tip": self.tip, "menu": self.menu, "status": self.status, "notes": self.notes, "docs": self.docs}
+        self._popups = {"tip": self.tip, "menu": self.menu, "status": self.status, "notes": self.notes, "docs": self.docs, "toast0": self.toasts[0], "toast1": self.toasts[1]}
 
     # ---- visibility
     def set_capturable(self, flag: bool) -> None:
@@ -338,14 +344,15 @@ class Overlay:
             return
         self._capturable = flag
         if flag:
-            for surface in (self.bar, self.tip, self.menu, self.status, self.notes, self.docs, self.ghost):
+            for surface in (self.bar, self.tip, self.menu, self.status, self.notes, self.docs, *self.toasts, self.ghost):
                 surface.set_capturable(True)
             return
         # macOS does not take "visible to captures" back from a window that already has it (the window server keeps the old
         # state), so the panels are rebuilt: new ones start hidden from captures.
         was_visible = self.bar.visible
         self.close_popups()
-        old = (self.bar, self.tip, self.menu, self.status, self.notes, self.docs, self.ghost)
+        self.hide_toast()
+        old = (self.bar, self.tip, self.menu, self.status, self.notes, self.docs, *self.toasts, self.ghost)
         self._bar_items, self._bar_hover, self._menu_rows, self._menu_rects, self._status_rows = [], None, [], [], []
         self._docs_rows = []
         self._notes_size = None
@@ -366,6 +373,7 @@ class Overlay:
 
     def hide(self) -> None:
         self.close_popups()
+        self.hide_toast()
         self.ghost.hide()
         self.bar.hide()
 
@@ -373,6 +381,7 @@ class Overlay:
         """Collapse the bar to a slim tab on its screen edge, or bring it back."""
         self.hidden = hidden
         self.close_popups()
+        self.hide_toast()
         self._save()
         self.update(self._state)
 
@@ -486,6 +495,8 @@ class Overlay:
         top, bottom = f.origin.y + f.size.height - a.get("top", 0), f.origin.y + f.size.height - a.get("bottom", 0)
         if kind == "notes":
             y = (top + bottom) / 2 - self._notes_size[1] / 2 if self._notes_size else (top + bottom) / 2 - h / 2  # bottom edge: as if it were the smallest size, it grows upwards
+        elif kind in ("toast0", "toast1"):
+            y = (top + bottom) / 2 + TOAST_ONE_LINE / 2 - h + pad  # a one-line toast is level with the microphone button; a longer one keeps its top edge there
         elif kind == "tip":
             y = (top + bottom) / 2 - h / 2  # level with the middle of its button
         elif kind in ("menu", "docs"):
@@ -545,6 +556,50 @@ class Overlay:
         self._anchor["tip"] = {"top": top, "bottom": bottom}
         self._want["tip"] = True
         self.tip.render({"kind": "tip", "side": self.side, **tip})
+
+    def show_toast(self, lines: list, seconds: float = 2.0) -> None:
+        """A one-line notice beside the bar, level with the microphone / system audio button (both: between them). Only one
+        at a time: a new one fades in as the one showing fades out. It never takes the mouse or the keyboard.
+        lines: [(who, device)], who being "Mic", "System" or "Mic and System"; a second line grows the toast downward."""
+        if not self.bar.visible or self.hidden or self._origin0:
+            return
+        items = {i[0]: i for i in self._bar_items}
+        mic = items.get("mic")  # every toast sits in the same spot, level with the microphone button
+        if mic is None:
+            return
+        old = f"toast{self._toast_cur}"
+        if self._want[old]:
+            self._fade_toast(old)  # leaves on its own panel while the new one comes in on the other
+        self._toast_cur = 1 - self._toast_cur
+        kind = f"toast{self._toast_cur}"
+        self.hide_toast(kind)  # whatever was still fading out there goes at once
+        self._anchor[kind] = {"top": mic[2], "bottom": mic[2] + mic[4]}
+        self._want[kind] = True
+        self._popups[kind].render({"kind": "toast", "side": self.side, "lines": [{"who": w, "device": d} for w, d in lines], "fresh": True})
+        self._toast_timers[kind] = [self._later(max(seconds - FADE_S, 0.1), lambda: self._fade_toast(kind))]
+
+    def _fade_toast(self, kind: str) -> None:
+        """Fade the toast on this panel out, then hide the panel."""
+        self._cancel_toast_timers(kind)
+        self._popups[kind].eval("window.__fade && window.__fade()")
+        self._toast_timers[kind] = [self._later(FADE_S, lambda: self.hide_toast(kind))]
+
+    def hide_toast(self, kind: str | None = None) -> None:
+        for k in ((kind,) if kind else ("toast0", "toast1")):
+            self._cancel_toast_timers(k)
+            self._want[k] = False
+            self._popups[k].hide()
+
+    def _cancel_toast_timers(self, kind: str) -> None:
+        for t in self._toast_timers[kind]:
+            t.invalidate()
+        self._toast_timers[kind] = []
+
+    @staticmethod
+    def _later(seconds: float, fn):
+        t = NSTimer.timerWithTimeInterval_repeats_block_(seconds, False, lambda _t: fn())
+        NSRunLoop.mainRunLoop().addTimer_forMode_(t, NSRunLoopCommonModes)
+        return t
 
     def hide_tip(self) -> None:
         self._want["tip"] = False
