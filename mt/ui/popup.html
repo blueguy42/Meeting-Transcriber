@@ -42,7 +42,7 @@
   .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 12px; border-radius: 8px; margin: 0 4px; cursor: pointer; white-space: nowrap; }
   .row.hov, .row.open { background: rgba(255,255,255,.12); }
   .sep { height: 1px; background: rgba(255,255,255,.12); margin: 4px 8px; }
-  .status { width: 220px; padding: 12px 14px; }
+  .status { width: 240px; padding: 12px 14px; }
   .head { display: flex; align-items: center; justify-content: space-between; margin: -4px -6px 4px 0; min-height: 24px; }
   .head span { font-size: 12px; color: #a9aab4; }
   .x { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #a9aab4; display: flex; align-items: center; justify-content: center; cursor: pointer; }
@@ -54,7 +54,17 @@
   .step small { display: block; font-size: 12px; color: #a9aab4; }
   .kid { display: flex; gap: 8px; align-items: center; margin: 0 0 2px 10px; padding: 3px 0 3px 12px; border-left: 1px solid rgba(255,255,255,.18); font-size: 12px; }
   .kid.now { color: #fff; }
-  .kid .r { margin-left: auto; color: #a9aab4; }
+  .kid.paused { color: #fff; }
+  .kid.paused .r { color: #ffb340; }
+  .step.paused, .step.cancelled { color: #fff; }
+  .step.cancelled { color: #a9aab4; }
+  .ptag { font-size: 12px; color: #ffb340; margin: 0 0 2px; }
+  .ptag.red { color: #ff8a80; }
+  .snote { font-size: 12px; color: #a9aab4; margin-top: 6px; line-height: 1.35; }
+  .b.pz { color: #ffb340; }
+  .b.cn { color: #ff8a80; }
+  .b .bi { display: inline-flex; margin-right: 6px; }
+  .kid .r { margin-left: auto; color: #a9aab4; white-space: nowrap; }
   .ring { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #8d8e98; box-sizing: border-box; margin-top: 2px; }
   .spin { width: 13px; height: 13px; border-radius: 50%; border: 2.5px solid #64a8ff; border-right-color: transparent; box-sizing: border-box; animation: spin 1s linear infinite; margin-top: 1px; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -109,8 +119,14 @@
   const CHECK_S = CHECK.replace('width="16" height="16"', 'width="14" height="14"');
   const CLOSE = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
 
+  const PAUSE_S = '<svg width="14" height="14" viewBox="0 0 24 24" fill="#ffb340" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg>';
+  const PAUSE_B = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="6" y="5" width="4" height="14" rx="1.2"/><rect x="14" y="5" width="4" height="14" rx="1.2"/></svg>';
+  const PLAY_B = '<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M8 5.5v13l11-6.5z"/></svg>';
+  const X_B = '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  const X_S = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#8d8e98" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+
   function icon(state) {
-    return state === "done" ? CHECK : state === "now" ? '<span class="spin"></span>' : '<span class="ring"></span>';
+    return state === "done" ? CHECK : state === "now" ? '<span class="spin"></span>' : state === "paused" ? PAUSE_S : state === "cancelled" ? X_S : '<span class="ring"></span>';
   }
 
   function renderTip(s) {
@@ -165,7 +181,7 @@
   function renderSteps(job) {
     return job.steps.map((st) => {
       const kids = (st.children || []).map((c) =>
-        '<div class="kid ' + c.state + '">' + (c.state === "done" ? CHECK_S : c.state === "now" ? '<span class="spin" style="width:11px;height:11px;border-width:2px"></span>' : '<span class="ring" style="width:11px;height:11px"></span>') +
+        '<div class="kid ' + c.state + '">' + (c.state === "done" ? CHECK_S : c.state === "now" ? '<span class="spin" style="width:11px;height:11px;border-width:2px"></span>' : c.state === "paused" ? PAUSE_S : c.state === "cancelled" ? X_S : '<span class="ring" style="width:11px;height:11px"></span>') +
         "<span>" + esc(c.label) + '</span><span class="r">' + esc(c.sub || "") + "</span></div>").join("");
       return '<div class="step ' + st.state + '"><span class="ic">' + icon(st.state) + "</span><div>" + esc(st.label) + (st.sub ? "<small>" + esc(st.sub) + "</small>" : st.detail && st.state !== "done" ? "<small>" + esc(st.detail).replace(/\n/g, "<br>") + "</small>" : "") + "</div></div>" + kids;
     }).join("");
@@ -174,10 +190,14 @@
   function renderStatus(s) {
     const jobs = s.jobs.map((j, i) => {
       let body;
-      if (j.state === "queued") body = '<div class="step todo"><span class="ic"><span class="ring"></span></span><div>Waiting for the meeting before it</div></div>';
+      const btn = (act, label, cls, icon) => '<button class="b ' + cls + '" data-act="' + act + '" data-job="' + j.id + '">' + (icon ? '<span class="bi">' + icon + "</span>" : "") + label + "</button>";
+      const stopping = j.stopping === "cancel" ? "Stopping…" : j.stopping === "pause" ? "Pausing…" : "";
+      if (j.state === "queued") body = '<div class="step todo"><span class="ic"><span class="ring"></span></span><div>' + (j.stopping ? "Cancelling…" : "Waiting for the meeting before it") + "</div></div>" + (j.stopping ? "" : '<div class="btns">' + btn("cancel", "Cancel", "cn", X_B) + "</div>");
+      else if (j.state === "paused") body = '<div class="ptag">Paused at ' + esc((j.steps.find((s) => s.state === "paused") || { label: "…" }).label) + "</div>" + renderSteps(j) + (j.note ? '<div class="snote">' + esc(j.note) + "</div>" : "") + '<div class="btns">' + btn("resume", "Resume", "pz", PLAY_B) + btn("cancel", "Cancel", "cn", X_B) + "</div>";
+      else if (j.state === "cancelled") body = '<div class="ptag red">Cancelled · the recording is kept</div>' + renderSteps(j) + '<div class="btns">' + btn("again", "Process again", "", "") + btn("dismiss", "Dismiss", "", "") + "</div>";
       else if (j.state === "failed") body = '<div class="err">' + esc(j.error || "Processing failed.") + '</div><div class="btns"><button class="b" data-act="folder" data-job="' + j.id + '">Open folder</button></div>';
       else if (j.state === "done") body = renderSteps(j) + '<div class="btns"><button class="b main" data-act="summary" data-job="' + j.id + '">Summary</button><button class="b" data-act="folder" data-job="' + j.id + '">Folder</button></div>';
-      else body = renderSteps(j);
+      else body = renderSteps(j) + (j.state === "active" ? (stopping ? '<div class="snote">' + stopping + "</div>" : '<div class="btns">' + btn("pause", "Pause", "pz", PAUSE_B) + btn("cancel", "Cancel", "cn", X_B) + "</div>") : "");
       return '<div class="job"><div class="jname">' + esc(j.name) + "</div>" + body + "</div>";
     }).join("");
     const foot = s.canRecord ? '<div class="btns"><button class="b" data-act="record">Start a new recording</button></div>' : "";
@@ -235,8 +255,20 @@
     postRects();
   }
 
+  // The processing panel is redrawn every second while a step runs. A click needs the same button on mouse-down and
+  // mouse-up, so while a button is held down the redraw waits until it is released.
+  let pressing = false, deferred = null, pressTimer = null;
+  function release() {
+    pressing = false;
+    clearTimeout(pressTimer);
+    if (deferred) { const d = deferred; deferred = null; setTimeout(() => window.render(d), 0); }
+  }
+  document.addEventListener("mousedown", () => { pressing = true; clearTimeout(pressTimer); pressTimer = setTimeout(release, 1500); }, true);
+  document.addEventListener("mouseup", () => setTimeout(release, 0), true);
+
   let lastJson = "";
   window.render = function (s) {
+    if (pressing && s.kind === "status") { deferred = s; return; }
     if (s.kind === "docs" || s.kind === "status" || s.kind === "ctl") {
       const json = JSON.stringify(s);
       if (json === lastJson && spec && spec.kind === s.kind) { report(); return; }  // nothing changed: leave the buttons alone

@@ -160,6 +160,37 @@ def calendar_hint(meeting_dir: Path) -> str:
             "(use these exact dates, do not calculate your own):\n" + "\n".join(lines) + "\n\n")
 
 
+def _run_claude(cmd, stdin, cwd, env, timeout: float = 1800):
+    """Run claude, waiting in short steps so a pause or cancel (see control.py) can stop it at once."""
+    import signal
+    import time
+
+    from . import control
+
+    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, cwd=cwd, env=env, start_new_session=True)
+    deadline, first = time.monotonic() + timeout, True
+    while True:
+        try:
+            out, err = proc.communicate(input=stdin if first else None, timeout=0.3)
+            return subprocess.CompletedProcess(cmd, proc.returncode, out, err)
+        except subprocess.TimeoutExpired:
+            first = False
+            try:
+                control.check()
+                if time.monotonic() > deadline:
+                    raise subprocess.TimeoutExpired(cmd, timeout)
+            except BaseException:
+                try:
+                    os.killpg(proc.pid, signal.SIGTERM)  # claude and anything it started
+                except OSError:
+                    pass
+                try:
+                    proc.communicate(timeout=5)
+                except Exception:
+                    proc.kill()
+                raise
+
+
 def summarize_meeting(meeting_dir: Path, cfg: dict, prompt_name: str | None = None) -> Path:
     claude = config.find_claude(cfg)
     if not claude:
@@ -177,7 +208,7 @@ def summarize_meeting(meeting_dir: Path, cfg: dict, prompt_name: str | None = No
     if cfg["claude_model"]:
         cmd += ["--model", cfg["claude_model"]]
     env = {**os.environ, "PATH": os.environ.get("PATH", "") + ":/opt/homebrew/bin:/usr/local/bin"}
-    r = subprocess.run(cmd, input=stdin, cwd=meeting_dir, capture_output=True, text=True, timeout=1800, env=env)
+    r = _run_claude(cmd, stdin, meeting_dir, env)
     if r.returncode != 0 or not r.stdout.strip():
         raise RuntimeError(f"claude failed ({r.returncode}): {r.stderr.strip() or r.stdout.strip()}")
     text = re.sub(r"\A\s*```(?:markdown|md)?\s*\n(.*)\n```\s*\Z", r"\1", r.stdout, flags=re.S)

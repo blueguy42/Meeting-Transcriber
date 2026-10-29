@@ -47,7 +47,7 @@ class Tracker:
 
     # ---- worker side
     def add(self, folder: Path, summarize: bool, transcribe: bool = True, recorded: bool = True, notes: int = 0, diarize: bool = False,
-            documents: int = 0, reading: bool = False) -> int:
+            documents: int = 0, reading: bool = False, mode: str = "full") -> int:
         steps = []
         if recorded:
             steps.append(_step("recorded", "Recorded", "done"))
@@ -66,7 +66,8 @@ class Tracker:
                 steps[-1]["detail"] = "\n".join(lines)
         steps.append(_step("save", "Saving files"))
         job = {"id": next(self._ids), "folder": str(folder), "name": display_name(folder.name), "state": "queued",
-               "steps": steps, "diarize": bool(diarize and transcribe), "out": None, "error": "", "seen": False, "finished": 0.0}
+               "steps": steps, "diarize": bool(diarize and transcribe), "out": None, "error": "", "seen": False, "finished": 0.0,
+               "mode": mode, "paused_at": None, "note": "", "stopping": ""}  # mode: "full" | "transcribe" | "summarize"
         with self._lock:
             self._jobs.append(job)
         self.on_change()
@@ -76,7 +77,11 @@ class Tracker:
         with self._lock:
             job = self._get(job_id)
             job["state"] = "active"
-            self._advance(job, job["steps"][1]["key"] if job["steps"][0]["key"] == "recorded" else job["steps"][0]["key"])
+            if job["paused_at"]:  # resuming: carry on at the step that was paused
+                self._advance(job, job["paused_at"])
+                job["paused_at"] = None
+            else:
+                self._advance(job, job["steps"][1]["key"] if job["steps"][0]["key"] == "recorded" else job["steps"][0]["key"])
         self.on_change()
 
     def feed(self, job_id: int, msg: str) -> None:
@@ -137,6 +142,69 @@ class Tracker:
             elif ev["kind"] == "docx":
                 self._advance(job, "save")
         self.on_change()
+
+    # ---- pause / cancel (see control.py): the worker thread stops at its next progress report
+    def stopping(self, job_id: int, reason: str) -> None:
+        """Pause or cancel was asked for; the step has not stopped yet."""
+        with self._lock:
+            self._get(job_id)["stopping"] = reason
+        self.on_change()
+
+    def pause(self, job_id: int) -> None:
+        with self._lock:
+            job = self._get(job_id)
+            now = next((s for s in job["steps"] if s["state"] == "now"), None)
+            job.update(state="paused", stopping="", paused_at=now["key"] if now else None, note="")
+            if now is not None:
+                now["state"] = "paused"
+                for c in now["children"]:
+                    if c["state"] == "now":
+                        c.update(state="paused", sub="Paused" + (f" · {c['sub']}" if c.get("sub") else ""))
+                        if now["key"] == "transcribe":
+                            job["note"] = ("Resuming starts this step again. The transcript is kept." if c["key"] == "diarize"
+                                           else "Resuming continues from the last speech burst.")
+                if not job["note"]:
+                    job["note"] = {"summarize": "Resuming starts this step again. The transcript is kept.",
+                                   "readdocs": "Resuming carries on with the documents."}.get(now["key"], "")
+        self.on_change()
+
+    def resume(self, job_id: int) -> None:
+        """Back in the queue; begin() carries on at the step that was paused."""
+        with self._lock:
+            job = self._get(job_id)
+            job.update(state="queued", note="", stopping="")
+            for s in job["steps"]:
+                if s["state"] == "paused":
+                    s["state"] = "now"
+                for c in s["children"]:
+                    if c["state"] == "paused":
+                        c.update(state="now", sub="")
+        self.on_change()
+
+    def cancel(self, job_id: int) -> None:
+        with self._lock:
+            job = self._get(job_id)
+            job.update(state="cancelled", stopping="", note="")
+            for s in job["steps"]:
+                if s["state"] in ("now", "paused"):
+                    s["state"] = "cancelled"
+                    for c in s["children"]:
+                        if c["state"] in ("now", "paused"):
+                            c.update(state="cancelled", sub="")
+        self.on_change()
+
+    def dismiss(self, job_id: int) -> None:
+        """Remove a cancelled meeting's row."""
+        with self._lock:
+            job = next((j for j in self._jobs if j["id"] == job_id), None)
+            if job is not None and job["state"] == "cancelled":
+                job["seen"] = True
+        self.on_change()
+
+    def job(self, job_id: int) -> dict | None:
+        with self._lock:
+            j = next((j for j in self._jobs if j["id"] == job_id), None)
+            return None if j is None else {k: v for k, v in j.items() if k != "steps"}
 
     def finish(self, job_id: int, folder: Path, out: Path) -> None:
         with self._lock:
@@ -227,7 +295,7 @@ class Tracker:
             share = w.get(s["key"], 0.0)
             if s["state"] == "done":
                 total += share
-            elif s["state"] == "now":
+            elif s["state"] in ("now", "paused"):
                 if s["key"] == "transcribe":
                     # a recording has two tracks; a track that never shows up leaves the ring at half until summarizing starts
                     tracks = [c for c in s["children"] if c["key"] != "model"]  # the model download is not part of the ring
@@ -238,7 +306,7 @@ class Tracker:
         return round(min(total, 0.99), 3)
 
     def _stage(self, job: dict) -> str:
-        if job["state"] in ("done", "failed", "queued"):
+        if job["state"] in ("done", "failed", "queued", "paused", "cancelled"):
             return job["state"]
         now = next((s["key"] for s in job["steps"] if s["state"] == "now"), "transcribe")
         return {"readdocs": "reading", "transcribe": "transcribing", "summarize": "summarizing", "save": "saving"}.get(now, "transcribing")

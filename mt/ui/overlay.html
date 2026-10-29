@@ -130,6 +130,7 @@
     check: '<path d="M5 12.5l4.5 4.5L19 7.5" stroke="#30d158" stroke-width="2.6"/>',
     bang: '<path d="M12 5v9M12 18v1" stroke="#ff453a" stroke-width="2.6"/>',
     clock: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
+    pause: '<path d="M9 6v12M15 6v12" stroke="#ffb340" stroke-width="2.6"/>',
   };
   let state = { recording: false, elapsed: 0, micMuted: false, sysMuted: false, busy: 0, job: null, hidden: false, side: "right" };
   let lastSize = "";
@@ -163,6 +164,8 @@
       setRing("#f2f2f5", 0, "#f2f2f5");
     } else if (job.stage === "done") {
       setRing("#30d158", 1, "#3a3b42"); $("glyph").innerHTML = GLYPHS.check; timer = "Done"; label = "Show result";
+    } else if (job.stage === "paused") {
+      setRing("#ffb340", Math.max(0.03, job.progress), "#3a3b42"); $("glyph").innerHTML = GLYPHS.pause; timer = "Paused"; label = "Show processing status";
     } else if (job.stage === "failed") {
       setRing("#ff453a", 1, "#3a3b42"); $("glyph").innerHTML = GLYPHS.bang; timer = "Failed"; label = "Show error";
     } else {
@@ -173,7 +176,7 @@
     }
     $("rec").setAttribute("aria-label", label);
     $("timer").textContent = timer;
-    $("timer").style.color = paused ? "#ffb340" : !rec && job && job.stage !== "done" && job.stage !== "failed" ? "#64a8ff" : "";
+    $("timer").style.color = paused || (!rec && job && job.stage === "paused") ? "#ffb340" : !rec && job && job.stage !== "done" && job.stage !== "failed" ? "#64a8ff" : "";
     const b = $("badge");
     b.style.display = rec && s.busy > 0 ? "flex" : "none";
     b.textContent = s.busy;

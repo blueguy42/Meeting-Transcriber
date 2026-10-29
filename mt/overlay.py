@@ -572,7 +572,7 @@ class Overlay:
         elif op == "status_close":
             self.close_status()
             self.host.overlay_status_action("close", None)
-        elif op in ("status_summary", "status_folder", "status_record"):
+        elif op in ("status_summary", "status_folder", "status_record", "status_pause", "status_resume", "status_cancel", "status_again", "status_dismiss"):
             self.host.overlay_status_action(op[len("status_"):], msg.get("id"))
 
     def show_tip(self, tip_id: str, top: float, bottom: float) -> None:

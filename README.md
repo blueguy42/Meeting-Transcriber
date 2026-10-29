@@ -317,6 +317,17 @@ documents*) and saving. When it is done you get **Summary** and **Folder** butto
   <img src="docs/screenshots/processing.png" alt="Progress panel: transcribing, telling speakers apart, summarizing, done, failed" width="800">
 </p>
 
+**Pause or cancel processing.** Every meeting in the panel has **Pause** and **Cancel** buttons (a meeting still waiting only has
+Cancel). Pause stops the current step within a second or two and shows **Paused at <step>**; **Resume** carries on, and a paused
+meeting does not hold up the next one. Transcribing keeps its place (it continues from the last speech burst); telling speakers
+apart and summarizing start their step again (the transcript is kept). **Cancel** asks first, because the current step's progress is
+lost; the recording is always kept, and the cancelled row offers **Process again** or **Dismiss**. Saving the files can't be stopped,
+it just finishes. A paused meeting is forgotten if you quit the app (the recording stays).
+
+<p align="center">
+  <img src="docs/screenshots/processing-controls.png" alt="Processing: Pause, Resume and Cancel, the paused and cancelled states, and what each step does" width="900">
+</p>
+
 You can start a new recording right away; a blue badge counts the meetings still being processed, and they are handled **one
 at a time**. The panel also shows meetings you re-process from the menu (**Transcribe a meeting…** has no "Recorded" step).
 
@@ -586,6 +597,14 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   tall as the top of the bar allows; its bottom edge stays level with the notes button and it opens on the screen side of the bar.
 
 ### How transcription works
+Pause and cancel: the worker thread is bound to a `JobControl` (`mt/control.py`). The app's progress callback calls `check()` after every
+report, which raises `Stopped("pause" | "cancel")`, so a step stops at its next report. The transcription catches it and saves a
+`transcribe.partial.json` checkpoint in the meeting folder (the results of the finished bursts and the language guess carried between
+bursts, valid only for the same model, language, vocabulary and bursts); the next run skips those bursts, and a finished or cancelled
+transcription deletes it. The Claude call runs with `Popen` in its own process group and is killed on a stop. A stop during the Word
+export is ignored (it finishes), and one asked for during audio compression waits for the next step. Resume runs the job again from the
+paused step (a pause during summarizing re-runs only the summary).
+
 Each track is cut into bursts of speech and each burst is transcribed on its own with mlx-whisper, with exact timestamps;
 silence is skipped. Mic bursts whose loudness envelope mirrors the system audio (speaker bleed) are dropped before and after
 transcription. Language is detected per burst (a pause of 1.5 s or more starts a new one), limited to `allowed_languages`;
@@ -695,6 +714,7 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 | `mt/notes.py`, `mt/ui/notes.html` | meeting notes: `notes.txt` storage, and the notes panel (a text box with timestamp chips) |
 | `mt/documents.py`, `mt/ocr.py` | meeting documents: copying, the manifest, reading each file type, the background reader, and Apple Vision OCR |
 | `mt/jobs.py`, `mt/progress.py` | progress of the meetings being processed |
+| `mt/control.py` | pausing and cancelling a meeting's processing (`Stopped` is raised from the progress reports) |
 | `mt/recorder.py`, `mt/screenshot.py`, `mt/snap.py`, `mt/flash.py` | recording, choosing and saving screenshots, the boxes to snap to, screenshot flash |
 | `mt/transcribe.py`, `mt/audio.py` | Whisper transcription (including `ensure_model`, which checks the model is complete and downloads it with progress), echo handling, audio compression |
 | `mt/diarize.py` | telling the other people apart (sherpa-onnx) |

@@ -15,7 +15,7 @@ from pathlib import Path
 from . import log as mtlog  # (sets the environment that quiets the libraries below)
 from PyObjCTools import AppHelper
 
-from . import config, documents, notes, permissions, progress, screenshot
+from . import config, control, documents, notes, permissions, progress, screenshot
 from .flash import flash_screen
 from .hotkeys import Hotkeys
 from .jobs import Tracker
@@ -24,6 +24,7 @@ from .pipeline import process, summarize_existing, transcribe_existing
 from .devicetoast import DeviceToasts, TOAST_S
 from .recorder import Recorder
 from .summarize import notes_lines
+from . import transcribe
 from .transcribe import transcript_file
 
 log = logging.getLogger("mt.app")
@@ -144,6 +145,8 @@ class App:
         self.started = 0.0
         self.pending = 0  # meetings waiting for / in processing
         self._pending_lock = threading.Lock()
+        self._controls: dict[int, control.JobControl] = {}  # pause / cancel switches of the meetings being processed (by job id)
+        self._jobargs: dict[int, tuple] = {}  # what each job was started with, so Resume can run it again
         self._work_lock = threading.Lock()  # process one meeting at a time (GPU), but never block recording
         try:
             self._hotkeys = Hotkeys()
@@ -284,7 +287,8 @@ class App:
 
     def _overlay_state(self) -> dict:
         jobs = self.jobs.snapshot()
-        show = next((j for j in jobs if j["state"] == "active"), None) or next((j for j in jobs if j["state"] == "queued"), None) or (jobs[-1] if jobs else None)
+        live = [j for j in jobs if j["state"] != "cancelled"]  # (a cancelled meeting does not light the ring)
+        show = next((j for j in live if j["state"] == "active"), None) or next((j for j in live if j["state"] == "queued"), None) or next((j for j in live if j["state"] == "paused"), None) or (live[-1] if live else None)
         return {
             "recording": self.rec.recording,
             "elapsed": int(self.rec.elapsed()),  # recording time: a pause is not counted
@@ -424,6 +428,18 @@ class App:
         elif act == "folder" and job:
             subprocess.run(["open", job.get("folder") or str(self.cfg["meetings_dir"])])
             self.jobs.acknowledge(job_id)
+        elif act == "pause" and job and job["state"] == "active":
+            ctrl = self._controls.get(job_id)
+            if ctrl is not None and ctrl.stop("pause"):
+                self.jobs.stopping(job_id, "pause")
+        elif act == "resume" and job:
+            self._resume_job(job_id)
+        elif act == "cancel" and job:
+            self._cancel_job(job_id, job)
+        elif act == "again" and job and job["state"] == "cancelled":
+            self._process_again(job)
+        elif act == "dismiss" and job:
+            self.jobs.dismiss(job_id)
         elif act == "record" and not self.rec.recording:
             self.toggle(None)
         elif act == "close":
@@ -694,17 +710,33 @@ class App:
             notes=notes_lines(d, cfg0),
             documents=n_docs,
             reading=reading,  # the summary also reads the notes you took (shown under "Summarizing")
+            mode="summarize" if summarize_only else "transcribe" if transcribe_only else "full",
         )
         on_main(self._open_status)
         log.info("Job queued: %s (summarize=%s, transcribe_only=%s, summarize_only=%s)", d.name, bool(cfg0["auto_summarize"] or summarize_only), transcribe_only, summarize_only)
 
+        self._start_job(job, d, summarize_only, transcribe_only, prompt, reading)
+
+    def _start_job(self, job, d, summarize_only, transcribe_only, prompt, reading):
+        """Run (or, after a pause, run again) one meeting's processing on its own thread, one meeting at a time."""
+        ctrl = control.JobControl()
+        self._controls[job] = ctrl
+        self._jobargs[job] = (d, summarize_only, transcribe_only, prompt)
+
         def say(text):
+            if text == progress.DOCX:
+                ctrl.locked = True  # saving the files: too late to pause or cancel, it finishes
             self.jobs.feed(job, text)
             self._status(text)
+            if not text.startswith("Audio compression"):  # (quick, and the transcript is already saved: a pause waits for the next step)
+                ctrl.check()  # a pause or cancel stops the step here (see control.py)
 
         def work():
             with self._work_lock:  # one meeting at a time; recording is never blocked
+                control.bind(ctrl)
                 try:
+                    if ctrl.reason:  # cancelled while waiting its turn (the row already says so)
+                        return
                     cfg = self._reload_cfg()
                     self.jobs.begin(job)
                     t0 = time.time()
@@ -722,6 +754,14 @@ class App:
                     log.info("Job done in %ds: %s", time.time() - t0, out)
                     notify("Meeting Transcriber", "Done", out.name)
                     subprocess.run(["open", "-R", str(out)])  # reveal the result in Finder
+                except control.Stopped as stop:
+                    if stop.reason == "cancel":
+                        self.jobs.cancel(job)
+                        transcribe.clear_checkpoint(d)
+                    else:
+                        self.jobs.pause(job)
+                    log.info("Job %s: %s", "cancelled" if stop.reason == "cancel" else "paused", d.name)
+                    on_main(self._open_status)
                 except Exception as e:
                     log.exception("Processing failed for %s", d.name)
                     self.jobs.fail(job, str(e))
@@ -729,10 +769,56 @@ class App:
                     log.error("Job failed: %s: %s", d.name, e)
                     notify("Meeting Transcriber", "Processing failed", str(e)[:200])
                 finally:
+                    control.bind(None)
                     with self._pending_lock:
                         self.pending -= 1
 
         threading.Thread(target=work, daemon=True).start()
+
+    def _resume_job(self, job_id: int) -> None:
+        """Run a paused meeting again from the step it was paused at (transcribing carries on from its checkpoint)."""
+        args = self._jobargs.get(job_id)
+        info = self.jobs.job(job_id)
+        if args is None or info is None or info["state"] != "paused":
+            return
+        d, summarize_only, transcribe_only, prompt = args
+        at = info["paused_at"]
+        if at == "summarize":  # the transcript is done: only the summary is asked for again
+            summarize_only, transcribe_only = True, False
+        self.jobs.resume(job_id)
+        with self._pending_lock:
+            self.pending += 1
+        log.info("Job resumed at %s: %s", at, d.name)
+        self._start_job(job_id, d, summarize_only, transcribe_only, prompt, reading=(at == "readdocs"))
+
+    def _cancel_job(self, job_id: int, job: dict) -> None:
+        """Stop a meeting's processing for good (the recording stays). Asks first when work would be thrown away."""
+        state = job["state"]
+        if state in ("active", "paused"):
+            bring_to_front()
+            if alert("Stop processing this meeting?", "The recording is kept and you can process it again later (Transcribe a meeting… or "
+                     "Summarize a meeting…). Progress on the current step is lost.", ok="Keep going", cancel="Stop processing", destructive_second=True) != "second":
+                return
+        ctrl = self._controls.get(job_id)
+        if state == "paused" or state == "queued":
+            if ctrl is not None:
+                ctrl.stop("cancel")  # (a waiting meeting leaves as soon as its turn comes)
+            self.jobs.cancel(job_id)
+            args = self._jobargs.get(job_id)
+            if args is not None:
+                transcribe.clear_checkpoint(args[0])
+        elif state == "active" and ctrl is not None and ctrl.stop("cancel"):
+            self.jobs.stopping(job_id, "cancel")
+
+    def _process_again(self, job: dict) -> None:
+        d, mode = Path(job["folder"]), job["mode"]
+        self.jobs.dismiss(job["id"])
+        if mode == "transcribe":
+            self._run_pipeline(d, transcribe_only=True)
+        elif mode == "summarize" or transcript_file(d).exists():  # a finished transcript is kept
+            self._run_pipeline(d, summarize_only=True)
+        else:
+            self._run_pipeline(d)
 
     def _watch_permissions(self):
         """Refresh the cached list of missing permissions every couple of seconds (off the main thread)."""
