@@ -41,6 +41,12 @@ def notify(title, subtitle, message=""):
         n.setTitle_(title)
         n.setSubtitle_(subtitle)
         n.setInformativeText_(message)
+        icon = app_icon()
+        if icon is not None:
+            try:
+                n.setValue_forKey_(icon, "_identityImage")  # the logo instead of Python's rocket (a private key; ignored if it goes away)
+            except Exception:
+                pass
         center = NSUserNotificationCenter.defaultUserNotificationCenter()
         log.info("Notification: %s", f"{title}: {subtitle} {message}".strip())
         if center is None:  # not running from an app bundle: the log is all we have
@@ -57,6 +63,9 @@ def alert(title: str, message: str, ok: str = "OK", cancel: str | None = None) -
     a = NSAlert.alloc().init()
     a.setMessageText_(title)
     a.setInformativeText_(message)
+    icon = app_icon()
+    if icon is not None:
+        a.setIcon_(icon)
     a.addButtonWithTitle_(ok)
     if cancel:
         a.addButtonWithTitle_(cancel)
@@ -82,10 +91,24 @@ def bring_to_front():
     NSApp.activateIgnoringOtherApps_(True)  # an app without a Dock icon opens its dialogs behind other windows otherwise
 
 
+def app_icon():
+    """The app's logo (assets/AppIcon.icns). The app runs inside Python, so without this its dialogs show Python's rocket."""
+    from pathlib import Path
+
+    from AppKit import NSImage
+
+    path = Path(__file__).resolve().parent.parent / "assets" / "AppIcon.icns"
+    return NSImage.alloc().initWithContentsOfFile_(str(path)) if path.exists() else None
+
+
 def _hide_dock_icon():
     from AppKit import NSApplication, NSApplicationActivationPolicyAccessory
 
-    NSApplication.sharedApplication().setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    app = NSApplication.sharedApplication()
+    app.setActivationPolicy_(NSApplicationActivationPolicyAccessory)
+    icon = app_icon()
+    if icon is not None:
+        app.setApplicationIconImage_(icon)  # alerts, open panels and the app switcher use this
 
 
 def fmt_hotkey(spec: str) -> str | None:
