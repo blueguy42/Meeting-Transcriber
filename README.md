@@ -313,10 +313,6 @@ microphone, the system audio (the other side), and, if you left it on in Setting
 said what among the other people. Then come summarizing (it says what it uses, for example *with your notes (4 lines) and 3
 documents*) and saving. When it is done you get **Summary** and **Folder** buttons. If something goes wrong, the panel says why.
 
-<p align="center">
-  <img src="docs/screenshots/processing.png" alt="Progress panel: transcribing, telling speakers apart, summarizing, done, failed" width="800">
-</p>
-
 **One tab per meeting.** The processing panel is a stack of tabs, newest on top: a status icon, the meeting's name, what it is doing
 ("Transcribing · 62%", "Waiting…", "Done · 15:42") and small icon buttons on the right. Click a tab to open it and see its steps
 (click it again to close it; only one is open at a time, and none is fine). The meeting being processed opens by itself until you open
@@ -344,7 +340,7 @@ lost; the recording is always kept, and the cancelled row offers **Process again
 it just finishes. A paused meeting is forgotten if you quit the app (the recording stays).
 
 <p align="center">
-  <img src="docs/screenshots/processing-controls.png" alt="Processing: Pause, Resume and Cancel, the paused and cancelled states, and what each step does" width="900">
+  <img src="docs/screenshots/processing-controls.png" alt="The Cancel confirmation, and what Pause, Resume and Cancel do at each step" width="900">
 </p>
 
 You can start a new recording right away; a blue badge counts the tabs in the processing panel, and they are handled **one
@@ -355,7 +351,7 @@ downloads it if not. The panel shows a **Downloading model** line with how many 
 is done. If nothing arrives for 5 minutes you are told to check your internet connection.
 
 <p align="center">
-  <img src="docs/screenshots/processing-queue.png" alt="Two meetings in the queue, transcribing an existing meeting, summarizing an existing meeting, downloading the speech model" width="800">
+  <img src="docs/screenshots/processing-queue.png" alt="What an open tab shows: two meetings in the queue, transcribing an existing meeting, summarizing an existing meeting, downloading the speech model, a failed meeting" width="900">
 </p>
 
 ### Summary styles

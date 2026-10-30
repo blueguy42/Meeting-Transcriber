@@ -7,12 +7,12 @@ Claude Desktop config:
 
 from pathlib import Path
 
-from mcp.server.fastmcp import FastMCP, Image
+from mcp.server.mcpserver import Image, MCPServer
 
 from . import config
 from .transcription import transcript_file
 
-mcp = FastMCP("meetings")
+mcp = MCPServer("meetings")
 CFG = config.load()
 ROOT: Path = CFG["meetings_dir"]
 
