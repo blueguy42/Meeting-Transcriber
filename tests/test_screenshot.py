@@ -4,7 +4,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from mt import screenshot as S
+from mt.recording import screenshot as S
 
 SCREEN = (840.0, 540.0)
 
@@ -39,7 +39,7 @@ class Geometry(unittest.TestCase):
 
 class Snapping(unittest.TestCase):
     def test_the_front_window_under_the_pointer_wins(self):
-        from mt import snap
+        from mt.recording import snap
 
         wins = [(1, (200, 100, 300, 200)), (2, (0, 0, 800, 600))]
         self.assertEqual(snap.window_at(wins, (250, 150)), wins[0])
@@ -47,7 +47,7 @@ class Snapping(unittest.TestCase):
         self.assertIsNone(snap.window_at(wins, (900, 50)))
 
     def test_boxes_run_from_the_smallest_part_to_the_window(self):
-        from mt import snap
+        from mt.recording import snap
 
         win = (100, 100, 800, 600)
         parts = [(300, 300, 50, 20), (280, 250, 200, 150), (50, 50, 2000, 2000)]  # the last is bigger than the window

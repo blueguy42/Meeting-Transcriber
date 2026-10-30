@@ -46,7 +46,7 @@ class Messages(unittest.TestCase):
 
 class RecorderCallback(unittest.TestCase):
     def test_a_failing_callback_never_breaks_the_recorder(self):
-        from mt.recorder import Recorder
+        from mt.recording import Recorder
 
         r = Recorder.__new__(Recorder)
         got = []

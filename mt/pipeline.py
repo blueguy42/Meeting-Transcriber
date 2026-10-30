@@ -5,7 +5,7 @@ from pathlib import Path
 from .audio import compress_meeting, has_audio
 from .progress import DOCX, SUMMARIZING
 from .summarize import summarize_meeting
-from .transcribe import transcribe_meeting, transcript_file
+from .transcription import transcribe_meeting, transcript_file
 
 UNTITLED = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{4}(-\d+)?$")  # e.g. 2026-10-07_1030
 

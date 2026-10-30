@@ -568,7 +568,7 @@ or a bare Python binary. Logs go to `~/Library/Logs/MeetingTranscriber.log` (eve
 Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests need macOS and skip themselves elsewhere.)
 
 ### How the interface works
-- The app is an `NSApplication` with no Dock icon and no menu bar item. Everything is the **floating bar** (`mt/overlay.py`):
+- The app is an `NSApplication` with no Dock icon and no menu bar item. Everything is the **floating bar** (`mt/overlay/`):
   a non-activating `NSPanel` hosting `mt/ui/overlay.html` in a `WKWebView`. The tooltip, More menu, processing panel and
   documents list are four more panels (`mt/ui/popup.html`), and the notes panel (`mt/ui/notes.html`) is the one that can take
   the keyboard (key-capable but non-activating, so the meeting app stays in front).
@@ -587,7 +587,7 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   per-app `SetsCursorInBackground` property (`CGSSetConnectionProperty`, private API, called once when the bar is created).
 - Because the app has no menu bar, it installs a small hidden Edit menu at start-up so ⌘A/C/V/X/Z reach text boxes.
 - Global hotkeys use Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission. Only the optional
-  snapping to parts inside a window (`mt/snap.py`, `pyobjc-framework-ApplicationServices`) uses Accessibility; windows themselves come
+  snapping to parts inside a window (`mt/recording/snap.py`, `pyobjc-framework-ApplicationServices`) uses Accessibility; windows themselves come
   from `CGWindowListCopyWindowInfo`.
 
 ### How recording works
@@ -596,7 +596,7 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
 - **System audio:** the `sck-audio` helper uses ScreenCaptureKit on the first display (all system audio, excluding the app
   itself) and writes `recordings/system.wav`. It reports the start time of the first buffer so tracks can be aligned.
 - **Screenshots:** the display under the mouse is captured with Quartz at its real pixel resolution at the moment you press the
-  button (`mt/screenshot.py`), shown full screen in a borderless window (`AreaSelector`) where you choose the area, and only the
+  button (`mt/recording/screenshot.py`), shown full screen in a borderless window (`AreaSelector`) where you choose the area, and only the
   chosen crop is scaled by `screenshot_scale` and saved as `shots/shot_<seconds>.jpg` (JPEG quality 80); the number is the time
   the screen froze. The window is hidden from screen sharing (`NSWindowSharingNone`), sits above the bar, and hands the keyboard
   back to the meeting app when it closes. A white flash confirms each added screenshot.
@@ -604,7 +604,7 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   writing); `resume()` restores the mute you had. At stop the paused stretches are cut out of `system.wav` (`cut_wav`), so both tracks are
   free of padding. `Recorder.elapsed()` is the recording's own clock (wall time minus pauses): the timer, notes, document and
   screenshot times all use it, so nothing needs shifting. `cancel()` stops everything and deletes the meeting folder, but only
-  when it is directly inside the meetings folder. The Stop-button flyout is `ctl` in `mt/ui/popup.html` / `mt/overlay.py`.
+  when it is directly inside the meetings folder. The Stop-button flyout is `ctl` in `mt/ui/popup.html` / `mt/overlay/stop_menu.py`.
 - **`meta.json`** stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
   `paused` (`[{"at": seconds into the recording, "for": seconds not recorded}]`: pauses are cut out of the audio, so every time
   here is in recording time) and `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device` / `system_device` (the default
@@ -634,7 +634,7 @@ silence is skipped. Mic bursts whose loudness envelope mirrors the system audio 
 transcription. Language is detected per burst (a pause of 1.5 s or more starts a new one), limited to `allowed_languages`;
 very short bursts reuse the previous burst's language. Roughly 30× faster than real time on Apple Silicon.
 
-If speaker separation is on, the system track is also run through sherpa-onnx (`mt/diarize.py`). It is the third part of the
+If speaker separation is on, the system track is also run through sherpa-onnx (`mt/transcription/diarize.py`). It is the third part of the
 *Transcribing* step in the progress panel: `diarize.py` reports progress through helpers in `mt/progress.py`
 (`diarizing(percent)`, `MATCHING_VOICES`, `downloading_model(n)`, `speakers_found(...)`), which `mt/jobs.py` turns into the
 "Speakers" line (listed only when `diarize` is on; *Skipped* if the models could not be loaded). Pyannote segmentation cuts
@@ -733,15 +733,14 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 ### Project layout
 | Path | Purpose |
 |---|---|
-| `mt/app.py` | the app: actions, permission flow, dialogs, glue to the bar |
-| `mt/overlay.py`, `mt/ui/overlay.html`, `mt/ui/popup.html` | the floating bar, its tooltips, menu, processing panel and documents list |
+| `mt/app.py` | the app itself: start-up, settings, status line, quitting. Its behaviour is split into `mt/recording_actions.py` (record, pause, mute, screenshots, notes, documents), `mt/processing.py` (summarize / transcribe jobs), `mt/overlay_host.py` (what the bar shows and what its buttons do), `mt/permission_flow.py` (macOS permission prompts) and `mt/desktop.py` (dialogs, notifications, Dock helpers) |
+| `mt/overlay/`, `mt/ui/overlay.html`, `mt/ui/popup.html` | the floating bar (`overlay.py`), with one module per popup: `tips`, `toast`, `menu`, `stop_menu`, `status` (processing tabs), `notes`, `docs`; `surfaces.py` holds the window and web-view classes |
 | `mt/notes.py`, `mt/ui/notes.html` | meeting notes: `notes.txt` storage, and the notes panel (a text box with timestamp chips) |
 | `mt/documents.py`, `mt/ocr.py` | meeting documents: copying, the manifest, reading each file type, the background reader, and Apple Vision OCR |
 | `mt/jobs.py`, `mt/progress.py` | progress of the meetings being processed |
 | `mt/control.py` | pausing and cancelling a meeting's processing (`Stopped` is raised from the progress reports) |
-| `mt/recorder.py`, `mt/screenshot.py`, `mt/snap.py`, `mt/flash.py` | recording, choosing and saving screenshots, the boxes to snap to, screenshot flash |
-| `mt/transcribe.py`, `mt/audio.py` | Whisper transcription (including `ensure_model`, which checks the model is complete and downloads it with progress), echo handling, audio compression |
-| `mt/diarize.py` | telling the other people apart (sherpa-onnx) |
+| `mt/recording/` | `recorder.py` (mic + system audio, pause, mute), `clock.py` (recording time without pauses), `wavtools.py`, `coreaudio.py`, `device_events.py` (device-change toasts), `screen.py`, `screenshot.py` (choosing the area), `snap.py` (boxes to snap to), `flash.py` |
+| `mt/transcription/`, `mt/audio.py` | transcription: `models.py` (`ensure_model`: checks the model is complete, downloads it with progress), `analysis.py` (speech and echo detection), `decoding.py` (Whisper), `checkpoint.py` (resume after pause), `segments.py` (merging, labels, markers), `meeting.py` (the whole flow), `diarize.py`; audio compression in `audio.py` |
 | `mt/pipeline.py`, `mt/summarize.py`, `mt/docx_export.py` | processing flow, Claude summary, Word export |
 | `mt/config.py`, `mt/settings_api.py`, `mt/settings_window.py`, `mt/ui/settings.html` | settings storage, validation and window |
 | `mt/hotkeys.py`, `mt/permissions.py` | global hotkeys, macOS permissions |

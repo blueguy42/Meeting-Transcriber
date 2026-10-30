@@ -9,7 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 try:
     from AppKit import NSApplication
     from Foundation import NSDate, NSRunLoop
-    from mt.overlay import _Surface
+    from mt.overlay.surfaces import Surface
 
     HAVE_WEBKIT = True
 except Exception:  # not on a Mac with PyObjC
@@ -37,7 +37,7 @@ class AddTime(unittest.TestCase):
     def setUpClass(cls):
         app = NSApplication.sharedApplication()
         app.setActivationPolicy_(1)
-        cls.surface = _Surface("notes.html", lambda m: None, can_key=True)
+        cls.surface = Surface("notes.html", lambda m: None, can_key=True)
         cls.surface.panel.setFrame_display_(((100, 100), (360, 320)), True)
         cls.surface.show()
         cls.spin(1.0)

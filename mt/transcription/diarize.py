@@ -15,8 +15,8 @@ from pathlib import Path
 
 import numpy as np
 
-from . import config
-from .progress import MATCHING_VOICES, diarizing, downloading_model
+from .. import config
+from ..progress import MATCHING_VOICES, diarizing, downloading_model
 
 SR = 16000
 SEG_URL = "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-segmentation-models/sherpa-onnx-pyannote-segmentation-3-0.tar.bz2"

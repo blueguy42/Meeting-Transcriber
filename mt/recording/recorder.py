@@ -1,177 +1,29 @@
 """Records mic (sounddevice) + system audio (sck-audio helper) + screenshots into a meeting folder.
 
 meeting folder layout:
-    meta.json  shots/shot_<seconds>.jpg  recordings/mic.wav  recordings/system.wav
-"""
+    meta.json  shots/shot_<seconds>.jpg  recordings/mic.wav  recordings/system.wav"""
 
 import json
 import queue
 import shutil
 import signal
 import subprocess
-import sys
 import threading
 import time
 import wave
 from datetime import datetime
 from pathlib import Path
 
-from . import config, permissions
-from .audio import RECORDINGS
+from .. import config
+from ..audio import RECORDINGS
+from .clock import RecordingClock
+from .coreaudio import default_input_id, default_output_id, device_name
+from .device_events import merged_events
+from .screen import grab_display, mouse_position, screen_access
+from .wavtools import cut_wav, make_resampler
+
 
 SR = 16000
-
-
-def _mouse_position() -> tuple[float, float]:
-    """Cursor position in points with a top-left origin: the same grid as Quartz display bounds."""
-    try:
-        from AppKit import NSEvent, NSScreen
-
-        p = NSEvent.mouseLocation()
-        return p.x, NSScreen.screens()[0].frame().size.height - p.y
-    except Exception:
-        return 0, 0
-
-
-def _grab_display(x: float, y: float):
-    """The display under (x, y) at its real pixel resolution (a Retina screen is 2x its point size)."""
-    import Quartz
-    from PIL import Image
-
-    _, ids, _ = Quartz.CGGetActiveDisplayList(16, None, None)
-    did = next((d for d in ids if Quartz.CGRectContainsPoint(Quartz.CGDisplayBounds(d), (x, y))), Quartz.CGMainDisplayID())
-    cg = Quartz.CGDisplayCreateImage(did)
-    if cg is None:
-        raise RuntimeError("could not capture the screen")
-    return cg_to_pil(cg)
-
-
-def cg_to_pil(cg):
-    """A Quartz picture (CGImage) as a Pillow image."""
-    import Quartz
-    from PIL import Image
-
-    w, h, stride = Quartz.CGImageGetWidth(cg), Quartz.CGImageGetHeight(cg), Quartz.CGImageGetBytesPerRow(cg)
-    data = Quartz.CGDataProviderCopyData(Quartz.CGImageGetDataProvider(cg))
-    return Image.frombytes("RGB", (w, h), bytes(data), "raw", "BGRX", stride, 1)
-
-
-def _screen_access() -> bool:
-    """macOS silently hands screenshot tools just the wallpaper when Screen Recording is not allowed."""
-    if sys.platform != "darwin" or permissions.screen_granted():
-        return True
-    permissions.request_screen()  # shows the system prompt the first time
-    return False
-
-
-def _coreaudio():
-    import ctypes
-
-    return ctypes.CDLL("/System/Library/Frameworks/CoreAudio.framework/CoreAudio")
-
-
-def _audio_prop(ca, dev: int, selector: int, out, scope: int = 0x676C6F62) -> bool:
-    import ctypes
-
-    class Addr(ctypes.Structure):
-        _fields_ = [("selector", ctypes.c_uint32), ("scope", ctypes.c_uint32), ("element", ctypes.c_uint32)]
-
-    addr = Addr(selector, scope, 0)  # scope 'glob' = global, element = main
-    size = ctypes.c_uint32(ctypes.sizeof(out))
-    return ca.AudioObjectGetPropertyData(dev, ctypes.byref(addr), 0, None, ctypes.byref(size), ctypes.byref(out)) == 0
-
-
-def _default_device_id(selector: int) -> int | None:
-    try:
-        import ctypes
-
-        dev = ctypes.c_uint32(0)
-        ok = _audio_prop(_coreaudio(), 1, selector, dev)  # 1 = the system object
-        return dev.value if ok and dev.value else None
-    except Exception:
-        return None
-
-
-def _default_input_id() -> int | None:
-    """CoreAudio's current default input device id (cheap; PortAudio's own device list is a stale snapshot)."""
-    return _default_device_id(0x64496E20)  # 'dIn '
-
-
-def _default_output_id() -> int | None:
-    """CoreAudio's current default output device id (what system audio is played through)."""
-    return _default_device_id(0x644F7574)  # 'dOut'
-
-
-def _device_name(dev: int | None) -> str | None:
-    """Human-readable name of a CoreAudio device id."""
-    if not dev:
-        return None
-    try:
-        import ctypes
-
-        ref = ctypes.c_void_p()
-        if not _audio_prop(_coreaudio(), dev, 0x6C6E616D, ref):  # 'lnam' (kAudioObjectPropertyName)
-            return None
-        cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
-        cf.CFStringGetCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
-        cf.CFRelease.argtypes = [ctypes.c_void_p]
-        buf = ctypes.create_string_buffer(256)
-        ok = cf.CFStringGetCString(ref, buf, len(buf), 0x08000100)  # UTF-8
-        cf.CFRelease(ref)
-        return buf.value.decode() if ok else None
-    except Exception:
-        return None
-
-
-def _make_resampler(src: int, dst: int):
-    """Streaming linear resampler for mono int16 chunks (speech only, so no fancy filter)."""
-    import numpy as np
-
-    step = src / dst
-    state = {"tail": np.zeros(0, dtype=np.float32), "pos": 0.0}
-
-    def run(chunk):
-        x = np.concatenate([state["tail"], chunk.astype(np.float32)])
-        idx = np.arange(state["pos"], len(x) - 1, step)
-        out = np.interp(idx, np.arange(len(x)), x)
-        used = int(idx[-1] // 1) if len(idx) else 0
-        next_pos = (idx[-1] + step if len(idx) else state["pos"]) - used
-        state["tail"], state["pos"] = x[used:], next_pos
-        return out.astype(np.int16)
-
-    return run
-
-
-def cut_wav(path: Path, first: float, spans: list) -> None:
-    """Remove the paused stretches from a recording that kept running through them (the system audio helper cannot be
-    told to stop writing). `first` is the wall-clock time of its first sample, `spans` the (start, end) wall-clock pauses."""
-    with wave.open(str(path), "rb") as r:
-        params, rate, total = r.getparams(), r.getframerate(), r.getnframes()
-        cuts: list[list[int]] = []
-        for a, b in sorted(spans):
-            x, y = max(int(round((a - first) * rate)), 0), min(int(round((b - first) * rate)), total)
-            if y > x:
-                if cuts and x <= cuts[-1][1]:
-                    cuts[-1][1] = max(cuts[-1][1], y)
-                else:
-                    cuts.append([x, y])
-        if not cuts:
-            return
-        tmp = path.with_name(path.stem + ".cut.wav")
-        with wave.open(str(tmp), "wb") as w:
-            w.setparams(params)
-            pos = 0
-            for x, y in [*cuts, [total, total]]:
-                r.setpos(pos)
-                left = x - pos
-                while left > 0:
-                    chunk = r.readframes(min(left, 1 << 16))
-                    if not chunk:
-                        break
-                    w.writeframes(chunk)
-                    left -= len(chunk) // (params.sampwidth * params.nchannels)
-                pos = y
-    tmp.replace(path)
 
 
 class Recorder:
@@ -179,7 +31,7 @@ class Recorder:
         self.cfg = cfg
         self.warn = on_warning
         self.dir: Path | None = None
-        self.t0 = 0.0
+        self.clock = RecordingClock()  # the recording's own time: wall time minus pauses (see clock.py)
         self.mic_first: float | None = None
         self.sys_first: float | None = None
         self._stream = None
@@ -207,13 +59,24 @@ class Recorder:
         self._mute_start: dict[str, float | None] = {"mic": None, "system": None}  # wall clock, while muted
         self._mute_spans: dict[str, list[tuple[float, float]]] = {"mic": [], "system": []}
         self._mute_lock = threading.Lock()
-        self.paused = False  # a real pause: nothing is recorded, and the time does not count
-        self._pauses: list[tuple[float, float]] = []  # wall-clock spans of finished pauses
-        self._pause_start: float | None = None
 
     @property
     def recording(self) -> bool:
         return self.dir is not None
+
+    @property
+    def t0(self) -> float:
+        """When the recording started (wall clock)."""
+        return self.clock.t0
+
+    @property
+    def paused(self) -> bool:
+        """A real pause: nothing is recorded, and the time does not count."""
+        return self.clock.paused
+
+    def elapsed(self) -> float:
+        """Seconds of recording so far, not counting pauses (what the timer, notes and screenshots use)."""
+        return self.clock.elapsed() if self.recording else 0.0
 
     def start(self) -> Path:
         if self.recording:
@@ -227,13 +90,12 @@ class Recorder:
         (d / "shots").mkdir(parents=True)
         (d / RECORDINGS).mkdir()
         self.dir = d
-        self.t0 = time.time()
+        self.clock.start(time.time())
         self.mic_first = self.sys_first = None
         self.shot_count = 0
         # mutes are set any time and carry over: one that is on at the start counts from the start
         self._mute_start = {"mic": self.t0 if self.mic_muted else None, "system": self.t0 if self.sys_muted else None}
         self._mute_spans = {"mic": [], "system": []}
-        self.paused, self._pauses, self._pause_start = False, [], None
         try:
             self._start_capture(d)
         except Exception:
@@ -275,8 +137,8 @@ class Recorder:
         self._mic_lost = False
         self._mic_events = []
         self._system_events = []
-        self._mic_start_device = _device_name(_default_input_id())
-        self._system_start_device = _device_name(_default_output_id())
+        self._mic_start_device = device_name(default_input_id())
+        self._system_start_device = device_name(default_output_id())
         if helper is not None:
             self._out_watcher = threading.Thread(target=self._watch_output, daemon=True)
             self._out_watcher.start()
@@ -302,7 +164,7 @@ class Recorder:
                 pcm = resampler(pcm)
             if self._mic_resync:  # reopened after a device change: keep the file aligned with the clock
                 self._mic_resync = False
-                gap = int((self._active(now) - self._active(self.mic_first)) * SR) - self._mic_written - len(pcm)
+                gap = int(self.clock.rel(now, self.mic_first) * SR) - self._mic_written - len(pcm)
                 if gap > 0:
                     self._q.put(bytes(gap * 2))
                     self._mic_written += gap
@@ -310,7 +172,7 @@ class Recorder:
             # muted: keep the file running (so it stays aligned with the clock) but write silence
             self._q.put(bytes(pcm.nbytes) if self.mic_muted else bytes(pcm))
 
-        self._mic_dev = _default_input_id()
+        self._mic_dev = default_input_id()
         self._mic_last = time.time()
         try:
             try:
@@ -324,7 +186,7 @@ class Recorder:
                     self._stream.close()
                 info = sd.query_devices(kind="input")
                 rate = int(info["default_samplerate"])
-                resampler = _make_resampler(rate, SR)
+                resampler = make_resampler(rate, SR)
                 self._stream = sd.InputStream(samplerate=rate, channels=1, dtype="int16", callback=cb)
                 self._stream.start()
             return True
@@ -353,7 +215,7 @@ class Recorder:
             with self._mic_lock:
                 if self._mic_stop.is_set():
                     return
-                cur = _default_input_id()
+                cur = default_input_id()
                 if self._stream is None:  # lost earlier: retry until a device is back
                     reason = "retry"
                 elif cur is not None and self._mic_dev is not None and cur != self._mic_dev:
@@ -403,12 +265,12 @@ class Recorder:
     def _watch_output(self) -> None:
         """Log changes of the default output device. System audio is captured from the whole display, so
         it keeps recording across a change; this only notes which device it was playing through."""
-        cur = _default_output_id()
+        cur = default_output_id()
         while not self._mic_stop.wait(1.0):
-            new = _default_output_id()
+            new = default_output_id()
             if new is not None and new != cur:
                 cur = new
-                name = _device_name(new)
+                name = device_name(new)
                 self._system_events.append({"t": time.time(), "event": "switched", "device": name})
                 self._device_changed("system", name)
 
@@ -441,18 +303,7 @@ class Recorder:
                 self._mute_start[track] = None
         return True
 
-    # ---- pause: nothing is recorded, and the paused time is not counted (see _active)
-    def _active(self, t: float) -> float:
-        """The wall clock at t minus the time spent paused before it: the recording's own clock."""
-        spans = list(self._pauses)
-        if self._pause_start is not None:
-            spans.append((self._pause_start, float("inf")))
-        return t - sum(max(0.0, min(t, b) - a) for a, b in spans)
-
-    def elapsed(self) -> float:
-        """Seconds of recording so far, not counting pauses (what the timer, notes and screenshots use)."""
-        return max(self._active(time.time()) - self.t0, 0.0) if self.recording else 0.0
-
+    # ---- pause: nothing is recorded, and the paused time is not counted (see clock.py)
     def pause(self) -> bool:
         """Stop recording until resume(). The microphone stops writing; the system audio helper writes silence that is cut
         out when the recording ends. False if it can't be done."""
@@ -461,8 +312,7 @@ class Recorder:
                 return False
             if self._proc is not None and not self._send_helper("MUTE"):
                 return False
-            self._pause_start = time.time()
-            self.paused = True
+            self.clock.pause()
         return True
 
     def resume(self) -> bool:
@@ -472,8 +322,7 @@ class Recorder:
             now = time.time()
             if self._proc is not None:
                 self._send_helper("MUTE" if self.sys_muted else "UNMUTE")  # back to the mute you had set
-            self._pauses.append((self._pause_start, now))
-            self._pause_start, self.paused = None, False
+            self.clock.resume(now)
             self._mic_resync = True  # the clock moved on without the file: no padding for the paused time
         return True
 
@@ -485,14 +334,12 @@ class Recorder:
         try:
             self._close()
         finally:
-            self.dir, self.paused, self._pause_start = None, False, None
+            self.dir = None
+            self.clock.resume()
         root = Path(self.cfg["meetings_dir"]).resolve()
         if d.resolve().parent == root:  # only ever a meeting folder inside the meetings folder
             shutil.rmtree(d, ignore_errors=True)
         return d
-
-    def _rel(self, t: float, origin: float) -> float:
-        return max(self._active(t) - self._active(origin), 0.0)
 
     def _mute_meta(self, origin: float, end: float) -> dict:
         """Mute spans as seconds from the recording origin: the same clock as the transcript timestamps."""
@@ -501,7 +348,7 @@ class Recorder:
             spans = list(self._mute_spans[track])
             if self._mute_start[track] is not None:  # still muted when recording stopped
                 spans.append((self._mute_start[track], end))
-            out[f"{track}_muted"] = [[round(self._rel(a, origin), 1), round(self._rel(b, origin), 1)] for a, b in spans]
+            out[f"{track}_muted"] = [[round(self.clock.rel(a, origin), 1), round(self.clock.rel(b, origin), 1)] for a, b in spans]
         return out
 
     def _read_helper(self):
@@ -525,12 +372,12 @@ class Recorder:
             return None
         self.require_screen_access()
         secs = time.time() - self.t0
-        x, y = _mouse_position()
-        return self.save_shot(_grab_display(x, y), secs)
+        x, y = mouse_position()
+        return self.save_shot(grab_display(x, y), secs)
 
     @staticmethod
     def require_screen_access() -> None:
-        if not _screen_access():
+        if not screen_access():
             raise RuntimeError("Screen Recording permission needed: allow Meeting Transcriber in System Settings, then restart it")
 
     def save_shot(self, img, secs: float) -> Path | None:
@@ -580,49 +427,24 @@ class Recorder:
                 self._proc.kill()
             self._proc = None
 
-    def _device_events(self, origin: float) -> list[dict]:
-        """Mic and system device changes in one list, in seconds from the recording origin. A mic and a system
-        switch to the same device within 2 s of each other (a headset plugged in moves both) become one "mic+system" entry."""
-        evs = [{**e, "track": "mic"} for e in self._mic_events] + [{**e, "track": "system"} for e in self._system_events]
-        evs.sort(key=lambda e: e["t"])
-        out: list[dict] = []
-        for e in evs:
-            prev = out[-1] if out else None
-            if (
-                prev
-                and {prev["track"], e["track"]} == {"mic", "system"}
-                and prev["event"] == e["event"] == "switched"
-                and prev.get("device") == e.get("device")
-                and e["t"] - prev["t"] <= 2
-            ):
-                out[-1] = {**prev, "track": "mic+system"}
-            else:
-                out.append(e)
-        return [
-            {"at": round(self._rel(e["t"], origin), 1), **{k: v for k, v in e.items() if k != "t" and v is not None}}
-            for e in out
-        ]
-
     def stop(self) -> Path:
         if not self.recording:
             raise RuntimeError("not recording")
         d = self.dir
         try:
             end = time.time()
-            if self.paused:  # stopped while paused: the pause ends here
-                self._pauses.append((self._pause_start, end))
-                self._pause_start, self.paused = None, False
+            self.clock.resume(end)  # stopped while paused: the pause ends here
             self._close()
             firsts = [t for t in (self.mic_first, self.sys_first) if t]
             origin = min(firsts) if firsts else self.t0
-            if self.sys_first and self._pauses:  # the helper kept writing (silence) through the pauses: cut them out
+            if self.sys_first and self.clock.pauses:  # the helper kept writing (silence) through the pauses: cut them out
                 try:
-                    cut_wav(d / RECORDINGS / "system.wav", self.sys_first, self._pauses)
+                    cut_wav(d / RECORDINGS / "system.wav", self.sys_first, self.clock.pauses)
                 except Exception as e:
                     self.warn(f"could not remove the paused parts of the system audio: {e}")
             meta = {
                 "started": datetime.fromtimestamp(self.t0).isoformat(timespec="seconds"),
-                "duration": round(self._rel(end, origin), 1),
+                "duration": round(self.clock.rel(end, origin), 1),
                 "origin_delay": round(origin - self.t0, 3),  # screenshot clock starts at t0, audio at origin
                 "mic_offset": round(self.mic_first - origin, 3) if self.mic_first else None,
                 "system_offset": round(self.sys_first - origin, 3) if self.sys_first else None,
@@ -630,9 +452,9 @@ class Recorder:
             }
             meta["mic_device"] = self._mic_start_device  # default input / output when recording started
             meta["system_device"] = self._system_start_device
-            if self._pauses:  # "at": recording time of the pause, "for": seconds not recorded
-                meta["paused"] = [{"at": round(self._rel(a, origin), 1), "for": round(b - a, 1)} for a, b in self._pauses]
-            events = self._device_events(origin)
+            if self.clock.pauses:  # "at": recording time of the pause, "for": seconds not recorded
+                meta["paused"] = [{"at": round(self.clock.rel(a, origin), 1), "for": round(b - a, 1)} for a, b in self.clock.pauses]
+            events = merged_events(self._mic_events, self._system_events, lambda t: self.clock.rel(t, origin))
             if events:
                 meta["device_events"] = events
             (d / "meta.json").write_text(json.dumps(meta, indent=2))

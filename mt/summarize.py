@@ -10,7 +10,7 @@ from pathlib import Path
 from . import config
 from . import documents
 from .notes import line_count, read_notes, stamp
-from .transcribe import transcript_file
+from .transcription import transcript_file
 
 INSTRUCTIONS = """
 ---

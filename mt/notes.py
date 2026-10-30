@@ -1,6 +1,6 @@
 """Meeting notes: a plain text file, notes.txt, in the meeting folder.
 
-You type them in the notes panel while recording (see overlay.py / ui/notes.html). The summary reads them
+You type them in the notes panel while recording (see overlay/notes.py / ui/notes.html). The summary reads them
 together with the transcript (summarize.py). Times you insert look like [12:34] or [1:05:42]: how far into
 the recording the note was made, so a note can be matched to the transcript.
 """

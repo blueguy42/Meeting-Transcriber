@@ -2,9 +2,9 @@
 
 Pressing the screenshot button (or its shortcut) takes a picture of the screen under the mouse at once (so what you see is
 exactly what is saved, even if a video keeps playing), shows it full screen with the rest dimmed. Point at a window, the menu bar, the Dock
-(or, with Accessibility allowed, a button or panel inside) to see a box you can click to choose it (see mt/snap.py); once chosen this way it can be
+(or, with Accessibility allowed, a button or panel inside) to see a box you can click to choose it (see mt/recording/snap.py); once chosen this way it can be
 adjusted but no other box chosen unless you cancel. Or drag any area. Return with nothing chosen takes the whole screen. Two buttons sit inside the
-frame at its bottom right: ✕ cancels and ✓ takes the screenshot. Return and Esc do the same, and ⌘A selects the whole screen. This module only does the choosing (AppKit, main thread); mt/recorder.py saves the picture.
+frame at its bottom right: ✕ cancels and ✓ takes the screenshot. Return and Esc do the same, and ⌘A selects the whole screen. This module only does the choosing (AppKit, main thread); mt/recording/recorder.py saves the picture.
 """
 
 import AppKit

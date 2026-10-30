@@ -128,3 +128,14 @@ class Hotkeys:
             else:
                 problems.append(f"{spec} could not be registered (error {status})")
         return problems
+
+
+def fmt_hotkey(spec: str) -> str | None:
+    """"<ctrl>+<alt>+r" -> "⌃⌥R" (the way macOS writes a shortcut)."""
+    if not spec:
+        return None
+    parts = spec.split("+")
+    keys = {"ctrl": "⌃", "alt": "⌥", "shift": "⇧", "cmd": "⌘"}
+    out = "".join(keys.get(p.strip("<>"), "") for p in parts[:-1])
+    last = parts[-1]
+    return out + (last.strip("<>").upper() if last.startswith("<") else last.upper())

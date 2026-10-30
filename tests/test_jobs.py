@@ -28,7 +28,7 @@ class ProgressMessages(unittest.TestCase):
 
 class Hotkeys(unittest.TestCase):
     def test_fmt_hotkey(self):
-        from mt.app import fmt_hotkey
+        from mt.hotkeys import fmt_hotkey
 
         self.assertEqual(fmt_hotkey("<ctrl>+<alt>+r"), "⌃⌥R")
         self.assertEqual(fmt_hotkey("<cmd>+<shift>+<f5>"), "⌘⇧F5")

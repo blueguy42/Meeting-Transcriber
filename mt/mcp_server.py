@@ -10,7 +10,7 @@ from pathlib import Path
 from mcp.server.fastmcp import FastMCP, Image
 
 from . import config
-from .transcribe import transcript_file
+from .transcription import transcript_file
 
 mcp = FastMCP("meetings")
 CFG = config.load()

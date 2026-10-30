@@ -13,7 +13,7 @@ from . import log
 
 log.setup()
 from .pipeline import finish, process
-from .recorder import Recorder
+from .recording import Recorder
 from .summarize import summarize_meeting
 
 

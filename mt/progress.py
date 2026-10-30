@@ -1,6 +1,6 @@
 """The progress messages the pipeline reports, in one place, so the floating bar can read them back.
 
-transcribe.py and pipeline.py build their messages with these helpers; jobs.py turns a message into an
+transcription/ and pipeline.py build their messages with these helpers; jobs.py turns a message into an
 event with parse(). A message nobody here knows is simply shown as text (parse returns None).
 """
 
