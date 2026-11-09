@@ -59,6 +59,9 @@ def _transcribe_meeting(meeting: Meeting, cfg: Settings, progress, ck: Checkpoin
     ensure_model(cfg.model, progress)
     tracks: dict[str, tuple[np.ndarray, float]] = {}
     notes: list[str] = []
+    if not meta.get("complete", True):  # saved while recording, never finished: the app quit or crashed
+        notes.append("⚠ the recording was cut short (the app quit or crashed): its end may be missing"
+                     + (", and times after a pause may be off" if meta.get("paused") else ""))
     muted = {mine: meta.get("mic_muted") or [], others: meta.get("system_muted") or []}
     with tempfile.TemporaryDirectory() as tmp:
         for fname, label, key in (("mic", mine, "mic_offset"), ("system", others, "system_offset")):

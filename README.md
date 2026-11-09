@@ -602,6 +602,9 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   screenshot times all use it, so nothing needs shifting. `cancel()` stops everything and deletes the meeting folder, but only
   when it is directly inside the meetings folder. The Stop-button flyout is `ctl` in `meeting_transcriber/web/popup/` (`ctl.js`, `ctl.css`) / `meeting_transcriber/bar/stop_menu.py`.
 - **`meta.json`** stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
+  `complete` (it is saved when the recording starts and kept up to date while it runs, one thread writing it and each save replacing the
+  file in one step, so a crash leaves a recording you can still transcribe: it says `false` until you stop, and the transcript then
+  warns that the end may be missing), plus
   `paused` (`[{"at": seconds into the recording, "for": seconds not recorded}]`: pauses are cut out of the audio, so every time
   here is in recording time) and `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device` / `system_device` (the default
   input / output device when the recording started) and `device_events` when either changed mid-recording (a device plugged in or

@@ -87,8 +87,7 @@ class Cancel(unittest.TestCase):
         (meeting / "notes.txt").write_text("x")
         other = root / "2026-10-28_0900"
         other.mkdir()
-        r = Recorder.__new__(Recorder)
-        r.cfg = Settings(meetings_dir=root)
+        r = Recorder(Settings(meetings_dir=root))
         r.meeting = Meeting(meeting)
         r.clock = RecordingClock(0.0)
         r._close = lambda: None
@@ -119,8 +118,7 @@ class StopMeta(unittest.TestCase):
         root = Path(tempfile.mkdtemp())
         d = root / "2026-10-29_1000"
         (d / RECORDINGS).mkdir(parents=True)
-        r = Recorder.__new__(Recorder)
-        r.cfg = Settings(meetings_dir=root)
+        r = Recorder(Settings(meetings_dir=root))
         r.meeting, r._close, r.warn = Meeting(d), (lambda: None), print
         r._mic_events, r._system_events, r._mic_start_device, r._system_start_device = [], [], "M", "S"
         r._mute_start, r._mute_spans = {"mic": None, "system": None}, {"mic": [], "system": []}
@@ -142,8 +140,7 @@ class StopMeta(unittest.TestCase):
         root = Path(tempfile.mkdtemp())
         d = root / "m"
         (d / RECORDINGS).mkdir(parents=True)
-        r = Recorder.__new__(Recorder)
-        r.cfg = Settings(meetings_dir=root)
+        r = Recorder(Settings(meetings_dir=root))
         r.meeting, r._close, r.warn = Meeting(d), (lambda: None), print
         r._mic_events, r._system_events, r._mic_start_device, r._system_start_device = [], [], None, None
         r._mute_start, r._mute_spans = {"mic": None, "system": None}, {"mic": [], "system": []}

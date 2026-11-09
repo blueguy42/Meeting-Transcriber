@@ -10,6 +10,7 @@
 """
 
 import json
+import os
 from pathlib import Path
 
 RECORDINGS = "recordings"
@@ -113,7 +114,10 @@ class Meeting:
         return json.loads(self.meta_file.read_text())
 
     def write_meta(self, meta: dict) -> None:
-        self.meta_file.write_text(json.dumps(meta, indent=2))
+        """Replace meta.json in one step: a reader (or a crash) sees the old file or the new one, never half of one."""
+        tmp = self.meta_file.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(meta, indent=2))
+        os.replace(tmp, self.meta_file)
 
     # ---- the folder itself
     def create(self) -> None:

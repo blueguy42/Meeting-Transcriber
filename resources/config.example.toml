@@ -20,8 +20,8 @@
 # my_label = "Me"
 # others_label = "Others"
 
-# screenshot_scale = 50          # percent of the screen's real pixel width (100 = full size)
-# auto_summarize = true         # summarize when a recording stops (false = transcript only)
+# screenshot_scale = 100         # percent of the screen's real pixel width (100 = full size)
+# auto_summarize = true          # summarize when a recording stops (false = transcript only)
 # default_prompt = "default"     # a file name in the prompts/ folder, without .md
 
 # claude_path = ""               # leave empty to auto-detect

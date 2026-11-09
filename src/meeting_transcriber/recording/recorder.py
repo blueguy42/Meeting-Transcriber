@@ -58,6 +58,12 @@ class Recorder:
         self._mute_start: dict[str, float | None] = {"mic": None, "system": None}  # wall clock, while muted
         self._mute_spans: dict[str, list[tuple[float, float]]] = {"mic": [], "system": []}
         self._mute_lock = threading.Lock()
+        # meta.json is saved while recording too, so a crash leaves a recording that can still be transcribed. One thread does it
+        # (the audio callbacks only raise the flag), one lock keeps the final save from overlapping a running one.
+        self._meta_lock = threading.Lock()
+        self._meta_dirty = threading.Event()
+        self._meta_stop = threading.Event()
+        self._meta_thread: threading.Thread | None = None
 
     @property
     def recording(self) -> bool:
@@ -97,6 +103,7 @@ class Recorder:
         self._mute_spans = {"mic": [], "system": []}
         try:
             self._start_capture(meeting)
+            self._start_meta_saver()
         except Exception:
             # Don't leave a half-started recording (open files, a running helper) behind.
             self._close()
@@ -158,6 +165,7 @@ class Recorder:
                 return
             if self.mic_first is None:
                 self.mic_first = now
+                self._meta_dirty.set()  # (no disk work on the audio thread)
             pcm = indata[:, 0] if resampler else indata  # fallback path may deliver several channels
             if resampler:
                 pcm = resampler(pcm)
@@ -294,6 +302,7 @@ class Recorder:
                 self.mic_muted = muted
             if not self.recording:
                 return True
+            self._meta_dirty.set()
             now = time.time()
             if muted and self._mute_start[track] is None:
                 self._mute_start[track] = now
@@ -312,6 +321,7 @@ class Recorder:
             if self._proc is not None and not self._send_helper("MUTE"):
                 return False
             self.clock.pause()
+            self._meta_dirty.set()
         return True
 
     def resume(self) -> bool:
@@ -323,6 +333,7 @@ class Recorder:
                 self._send_helper("MUTE" if self.sys_muted else "UNMUTE")  # back to the mute you had set
             self.clock.resume(now)
             self._mic_resync = True  # the clock moved on without the file: no padding for the paused time
+            self._meta_dirty.set()
         return True
 
     def cancel(self) -> Meeting | None:
@@ -340,21 +351,12 @@ class Recorder:
             shutil.rmtree(meeting.folder, ignore_errors=True)
         return meeting
 
-    def _mute_meta(self, origin: float, end: float) -> dict:
-        """Mute spans as seconds from the recording origin: the same clock as the transcript timestamps."""
-        out = {}
-        for track in ("mic", "system"):
-            spans = list(self._mute_spans[track])
-            if self._mute_start[track] is not None:  # still muted when recording stopped
-                spans.append((self._mute_start[track], end))
-            out[f"{track}_muted"] = [[round(self.clock.rel(a, origin), 1), round(self.clock.rel(b, origin), 1)] for a, b in spans]
-        return out
-
     def _read_helper(self):
         for line in self._proc.stdout:
             line = line.strip()
             if line.startswith("FIRST "):
                 self.sys_first = float(line.split()[1])
+                self._meta_dirty.set()
             elif line.startswith("ERROR"):
                 self.warn(f"system audio: {line[6:]} (check Screen Recording permission)")
 
@@ -399,6 +401,7 @@ class Recorder:
 
     def _close(self) -> None:
         """Stop everything that may be running. Safe to call twice and after a partial start."""
+        self._stop_meta_saver()  # first: nothing may write into the folder once it is being finished or deleted
         self._mic_stop.set()
         if self._mic_watcher is not None:
             self._mic_watcher.join(timeout=10)
@@ -426,6 +429,68 @@ class Recorder:
                 self._proc.kill()
             self._proc = None
 
+    # ---- meta.json: what this recording knew, saved at the start, kept up to date, and finished when it stops
+    def _start_meta_saver(self) -> None:
+        self._meta_stop.clear()
+        self._meta_dirty.clear()
+        self._save_meta(time.time(), complete=False)  # from the first moment there is a recording to recover
+        self._meta_thread = threading.Thread(target=self._meta_loop, daemon=True)
+        self._meta_thread.start()
+
+    def _stop_meta_saver(self) -> None:
+        self._meta_stop.set()
+        self._meta_dirty.set()
+        if self._meta_thread is not None:
+            self._meta_thread.join(timeout=5)
+            self._meta_thread = None
+
+    def _meta_loop(self) -> None:
+        """Save when something worth saving happened (a track started, a pause, a mute), and every 10 seconds anyway
+        (the length of the recording so far). A burst of changes is one save."""
+        while not self._meta_stop.is_set():
+            self._meta_dirty.wait(10)
+            if self._meta_stop.wait(0.5):  # let a burst of changes finish
+                return
+            self._meta_dirty.clear()
+            try:
+                self._save_meta(time.time(), complete=False)
+            except Exception:
+                pass  # (the next save tries again; stopping saves the real one)
+
+    def _save_meta(self, end: float, complete: bool) -> None:
+        with self._meta_lock:
+            meeting = self.meeting
+            if meeting is not None and meeting.folder.exists():
+                meeting.write_meta(self._build_meta(end, complete))
+
+    def _build_meta(self, end: float, complete: bool) -> dict:
+        with self._mute_lock:  # pause, resume and mute change these together
+            pauses = list(self.clock.pauses) + ([(self.clock.pause_start, end)] if self.clock.pause_start is not None else [])
+            mute_start, mute_spans = dict(self._mute_start), {k: list(v) for k, v in self._mute_spans.items()}
+        mic_first, sys_first = self.mic_first, self.sys_first  # (set by other threads, once each)
+        firsts = [t for t in (mic_first, sys_first) if t]
+        origin = min(firsts) if firsts else self.t0
+        rel = lambda t: self.clock.rel(t, origin)  # noqa: E731
+        meta = {
+            "started": datetime.fromtimestamp(self.t0).isoformat(timespec="seconds"),
+            "duration": round(rel(end), 1),
+            "origin_delay": round(origin - self.t0, 3),  # screenshot clock starts at t0, audio at origin
+            "mic_offset": round(mic_first - origin, 3) if mic_first else None,
+            "system_offset": round(sys_first - origin, 3) if sys_first else None,
+        }
+        for track in ("mic", "system"):
+            spans = mute_spans[track] + ([(mute_start[track], end)] if mute_start[track] is not None else [])  # still muted now
+            meta[f"{track}_muted"] = [[round(rel(a), 1), round(rel(b), 1)] for a, b in spans]
+        meta["mic_device"] = self._mic_start_device  # default input / output when recording started
+        meta["system_device"] = self._system_start_device
+        if pauses:  # "at": recording time of the pause, "for": seconds not recorded
+            meta["paused"] = [{"at": round(rel(a), 1), "for": round(b - a, 1)} for a, b in pauses]
+        events = merged_events(list(self._mic_events), list(self._system_events), rel)
+        if events:
+            meta["device_events"] = events
+        meta["complete"] = complete  # False: the app quit or crashed before the recording was stopped
+        return meta
+
     def stop(self) -> Meeting:
         if not self.recording:
             raise RuntimeError("not recording")
@@ -434,29 +499,12 @@ class Recorder:
             end = time.time()
             self.clock.resume(end)  # stopped while paused: the pause ends here
             self._close()
-            firsts = [t for t in (self.mic_first, self.sys_first) if t]
-            origin = min(firsts) if firsts else self.t0
             if self.sys_first and self.clock.pauses:  # the helper kept writing (silence) through the pauses: cut them out
                 try:
                     cut_wav(meeting.recordings_dir / "system.wav", self.sys_first, self.clock.pauses)
                 except Exception as e:
                     self.warn(f"could not remove the paused parts of the system audio: {e}")
-            meta = {
-                "started": datetime.fromtimestamp(self.t0).isoformat(timespec="seconds"),
-                "duration": round(self.clock.rel(end, origin), 1),
-                "origin_delay": round(origin - self.t0, 3),  # screenshot clock starts at t0, audio at origin
-                "mic_offset": round(self.mic_first - origin, 3) if self.mic_first else None,
-                "system_offset": round(self.sys_first - origin, 3) if self.sys_first else None,
-                **self._mute_meta(origin, end),
-            }
-            meta["mic_device"] = self._mic_start_device  # default input / output when recording started
-            meta["system_device"] = self._system_start_device
-            if self.clock.pauses:  # "at": recording time of the pause, "for": seconds not recorded
-                meta["paused"] = [{"at": round(self.clock.rel(a, origin), 1), "for": round(b - a, 1)} for a, b in self.clock.pauses]
-            events = merged_events(self._mic_events, self._system_events, lambda t: self.clock.rel(t, origin))
-            if events:
-                meta["device_events"] = events
-            meeting.write_meta(meta)
+            self._save_meta(end, complete=True)
         finally:
             self.meeting = None
         return meeting
