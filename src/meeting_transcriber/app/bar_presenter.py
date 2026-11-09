@@ -24,9 +24,9 @@ class BarPresenter:
         self.toasts = DeviceToasts()
 
     def device_toast(self, track: str, device: str) -> None:
-        """The microphone or the sound output moved to another device while recording: say so beside the bar."""
+        """The microphone or the sound output moved to another device: say so beside the bar."""
         bar = self.app.bar
-        if bar is not None and self.rec.recording:
+        if bar is not None:
             bar.show_toast(self.toasts.message(track, device), TOAST_S)
 
     def state(self) -> dict:

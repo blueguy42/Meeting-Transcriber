@@ -159,7 +159,7 @@ documents tooltip how many documents are read. Tooltips float above every popup.
 red line across it. Muted audio is replaced with silence before it is saved, so it cannot be recovered. The transcript marks
 the stretch as `(Me muted)` / `(Me unmuted)`.
 
-**Switching devices.** If your microphone or your speakers change while recording (AirPods connect, a headset is unplugged), a
+**Switching devices.** If your microphone or your speakers change (AirPods connect, a headset is unplugged), whether you are recording or not, a
 small notice appears beside the bar for 2 seconds, always in the same spot (level with the microphone button): **Mic: MacBook Pro Microphone**,
 **System: USB-C Headphones**, or **Mic and System: AirPods Pro** when one headset takes over both. If the mic and the speakers
 move to different devices within 2 seconds of each other, one notice has a line for each (**Mic: …** and **System: …**). A newer notice replaces the
@@ -734,7 +734,7 @@ The Python code is the `meeting_transcriber` package in `src/`; paths below are 
 | `app/` | the running app. `app.py` owns what the parts share (settings, recorder, jobs, the bar), the hotkeys and quitting, and puts four parts together: `recording_controller.py` (record, pause, mute, screenshots, notes, documents), `processing_controller.py` (summarize / transcribe jobs: queue, pause, resume, cancel), `permission_controller.py` (macOS permission prompts) and `bar_presenter.py` (what the bar shows and what its buttons do) |
 | `bar/`, `web/overlay/`, `web/popup/` | the floating bar (`bar.py`: placement, dragging, the pointer) and one class per popup beside it (all based on `popup.py`): `tips`, `toast`, `menu`, `stop_menu`, `status` (processing tabs), `notes`, `docs`; `host.py` is what the bar needs from the app; `surfaces.py` holds the window and web-view classes |
 | `meetings/` | `meeting.py` (`Meeting`: the one place that knows what a meeting folder holds and what each file is called), then what is in it: `notes.py` (`notes.txt`; panel in `web/notes.html`), `documents.py` (copying, the manifest, the background reader), `ocr.py` (Apple Vision), `audio.py` (the recorded tracks and shrinking them after transcribing) |
-| `recording/` | `recorder.py` (mic + system audio, pause, mute), `clock.py` (recording time without pauses), `wavtools.py`, `coreaudio.py`, `device_events.py` and `device_toast.py` (device changes and the toast wording), `screen.py`, `screenshot.py` (choosing the area), `snap.py` (boxes to snap to), `flash.py` |
+| `recording/` | `recorder.py` (mic + system audio, pause, mute), `clock.py` (recording time without pauses), `wavtools.py`, `coreaudio.py`, `device_events.py`, `device_toast.py` and `device_watcher.py` (device changes, the toast wording, and noticing a switch when nothing is recording), `screen.py`, `screenshot.py` (choosing the area), `snap.py` (boxes to snap to), `flash.py` |
 | `transcription/` | `transcribe.py` (the whole flow), `models.py` (`ensure_model`: checks the model is complete, downloads it with progress), `analysis.py` (speech and echo detection), `decoding.py` (Whisper), `checkpoint.py` (resume after pause), `segments.py` (merging, labels, markers), `diarize.py` (telling the other people apart, sherpa-onnx) |
 | `processing/` | `pipeline.py` (the processing flow), `jobs.py` and `progress.py` (progress of the meetings being processed), `control.py` (pausing and cancelling; `Stopped` is raised from the progress reports) |
 | `summary/` | `summarize.py` (the Claude summary), `docx_export.py` (Word export) |

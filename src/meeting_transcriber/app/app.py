@@ -15,6 +15,7 @@ from ..desktop.macos import alert, bring_to_front, every, hide_dock_icon, notify
 from ..meetings import documents
 from ..processing.jobs import Tracker
 from ..recording import Recorder
+from ..recording.device_watcher import DeviceWatcher
 from ..settings import config
 from ..settings.model import Settings
 from .bar_presenter import BarPresenter
@@ -48,6 +49,9 @@ class App:
         self.processing = ProcessingController(self)
         self.presenter = BarPresenter(self)
         self.rec.on_device_change = lambda track, device: on_main(self.presenter.device_toast, track, device)  # called from the recorder's watcher threads
+        # a switch while recording is noticed by the recorder; this one covers the rest of the time
+        self._devices = DeviceWatcher(lambda track, device: on_main(self.presenter.device_toast, track, device), active=lambda: not self.rec.recording)
+        self._devices.start()
         try:
             self._hotkeys = Hotkeys()
         except OSError as e:
