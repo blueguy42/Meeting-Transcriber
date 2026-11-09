@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "meeting-transcriber"
+version = "1.0"
+description = "Records meetings from a floating bar, transcribes them on your Mac and summarizes them with Claude."
+requires-python = ">=3.11"
+dependencies = [
+    "mlx-whisper",
+    "numpy",
+    "sherpa-onnx",
+    "sounddevice",
+    "pyobjc-framework-Quartz",
+    "Pillow",
+    "mcp>=2",
+    "pypandoc_binary",
+    "pyobjc-framework-WebKit",
+    "pyobjc-framework-AVFoundation",
+    "pyobjc-framework-Vision",
+    "pyobjc-framework-ApplicationServices",
+    "python-pptx",
+    "openpyxl",
+]
+
+[project.scripts]
+meeting-transcriber = "meeting_transcriber.app:main"
+meeting-transcriber-cli = "meeting_transcriber.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+meeting_transcriber = ["web/**/*.html", "web/**/*.css", "web/**/*.js"]

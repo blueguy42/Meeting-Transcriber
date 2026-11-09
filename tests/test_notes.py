@@ -1,25 +1,26 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt import config, notes, settings_api
-from mt.jobs import Tracker
-from mt.summarize import NOTES_INSTRUCTIONS, notes_block, notes_lines
+from meeting_transcriber.settings import config, api as settings_api
+from meeting_transcriber.meetings import notes
+from meeting_transcriber.meetings.meeting import Meeting
+from meeting_transcriber.processing.jobs import Tracker
+from meeting_transcriber.summary.summarize import NOTES_INSTRUCTIONS, notes_block, notes_lines
+from meeting_transcriber.settings.model import Settings as AppSettings
 
 
 class Files(unittest.TestCase):
     def test_save_read_and_remove(self):
         with tempfile.TemporaryDirectory() as t:
             d = Path(t)
-            notes.save_notes(d, "[02:10] Budget is 120M\nask Budi")
-            self.assertEqual(notes.read_notes(d), "[02:10] Budget is 120M\nask Budi\n")
+            m = Meeting(d)
+            notes.save_notes(m, "[02:10] Budget is 120M\nask Budi")
+            self.assertEqual(notes.read_notes(m), "[02:10] Budget is 120M\nask Budi\n")
             self.assertFalse(list(d.glob("*.tmp")))
-            notes.save_notes(d, "  \n")  # emptied: no file left behind
-            self.assertFalse(notes.notes_file(d).exists())
-            self.assertEqual(notes.read_notes(d), "")
+            notes.save_notes(m, "  \n")  # emptied: no file left behind
+            self.assertFalse(m.notes_file.exists())
+            self.assertEqual(notes.read_notes(m), "")
 
     def test_lines_and_stamps(self):
         self.assertEqual(notes.line_count("[02:10] a\n\n[05:42]\nb\n"), 2)  # a time alone is not a line of notes
@@ -30,17 +31,17 @@ class Files(unittest.TestCase):
 
 class Summary(unittest.TestCase):
     def test_notes_reach_the_request_whatever_the_style(self):
-        cfg = {"use_notes": True}
+        cfg = AppSettings(use_notes=True)
         with tempfile.TemporaryDirectory() as t:
-            d = Path(t)
+            d = Meeting(t)
             self.assertEqual(notes_block(d, cfg), "")  # no notes, nothing added
             notes.save_notes(d, "[05:42] Dina owns the shortlist {not a format field}")
             block = notes_block(d, cfg)
             self.assertIn("Dina owns the shortlist {not a format field}", block)
             self.assertIn("Do not label anything", block)
             self.assertEqual(notes_lines(d, cfg), 1)
-            self.assertEqual(notes_block(d, {"use_notes": False}), "")  # turned off in Settings
-            self.assertEqual(notes_lines(d, {"use_notes": False}), 0)
+            self.assertEqual(notes_block(d, AppSettings(use_notes=False)), "")  # turned off in Settings
+            self.assertEqual(notes_lines(d, AppSettings(use_notes=False)), 0)
         self.assertIn("{notes}", NOTES_INSTRUCTIONS)
 
 
@@ -57,9 +58,9 @@ class Settings(unittest.TestCase):
         self.assertIs(settings_api._check("documents_ocr", True), True)
         with self.assertRaises(ValueError):
             settings_api._check("use_documents", "yes")
-        self.assertTrue(config.defaults()["use_documents"] and config.defaults()["documents_ocr"])
-        self.assertEqual(config.defaults()["hotkey_notes"], "<ctrl>+<alt>+t")
-        self.assertTrue(config.defaults()["use_notes"])
+        self.assertTrue(config.defaults().use_documents and config.defaults().documents_ocr)
+        self.assertEqual(config.defaults().hotkey_notes, "<ctrl>+<alt>+t")
+        self.assertTrue(config.defaults().use_notes)
 
 
 class Flyout(unittest.TestCase):

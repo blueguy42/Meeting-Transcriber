@@ -1,6 +1,5 @@
 import json
 import shutil
-import sys
 import tempfile
 import unittest
 import wave
@@ -8,13 +7,12 @@ from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt.audio import RECORDINGS
-from mt.recording import wavtools
-from mt.recording.clock import RecordingClock
-from mt.recording.recorder import Recorder
-from mt.transcription import segments
+from meeting_transcriber.meetings.meeting import RECORDINGS, Meeting
+from meeting_transcriber.recording import wavtools
+from meeting_transcriber.recording.clock import RecordingClock
+from meeting_transcriber.recording.recorder import Recorder
+from meeting_transcriber.transcription import segments
+from meeting_transcriber.settings.model import Settings
 
 RATE = 16000
 
@@ -90,17 +88,17 @@ class Cancel(unittest.TestCase):
         other = root / "2026-10-28_0900"
         other.mkdir()
         r = Recorder.__new__(Recorder)
-        r.cfg = {"meetings_dir": root}
-        r.dir = meeting
+        r.cfg = Settings(meetings_dir=root)
+        r.meeting = Meeting(meeting)
         r.clock = RecordingClock(0.0)
         r._close = lambda: None
-        self.assertEqual(r.cancel(), meeting)
+        self.assertEqual(r.cancel(), Meeting(meeting))
         self.assertFalse(meeting.exists())
         self.assertTrue(other.exists())  # older meetings are never touched
         self.assertIsNone(r.cancel())  # not recording any more
         # a folder that is not directly inside the meetings folder is left alone
         stray = Path(tempfile.mkdtemp())
-        r.dir = stray
+        r.meeting = Meeting(stray)
         r.cancel()
         self.assertTrue(stray.exists())
         shutil.rmtree(stray)
@@ -122,8 +120,8 @@ class StopMeta(unittest.TestCase):
         d = root / "2026-10-29_1000"
         (d / RECORDINGS).mkdir(parents=True)
         r = Recorder.__new__(Recorder)
-        r.cfg = {"meetings_dir": root}
-        r.dir, r._close, r.warn = d, (lambda: None), print
+        r.cfg = Settings(meetings_dir=root)
+        r.meeting, r._close, r.warn = Meeting(d), (lambda: None), print
         r._mic_events, r._system_events, r._mic_start_device, r._system_start_device = [], [], "M", "S"
         r._mute_start, r._mute_spans = {"mic": None, "system": None}, {"mic": [], "system": []}
         now = _t.time()
@@ -145,8 +143,8 @@ class StopMeta(unittest.TestCase):
         d = root / "m"
         (d / RECORDINGS).mkdir(parents=True)
         r = Recorder.__new__(Recorder)
-        r.cfg = {"meetings_dir": root}
-        r.dir, r._close, r.warn = d, (lambda: None), print
+        r.cfg = Settings(meetings_dir=root)
+        r.meeting, r._close, r.warn = Meeting(d), (lambda: None), print
         r._mic_events, r._system_events, r._mic_start_device, r._system_start_device = [], [], None, None
         r._mute_start, r._mute_spans = {"mic": None, "system": None}, {"mic": [], "system": []}
         now = _t.time()

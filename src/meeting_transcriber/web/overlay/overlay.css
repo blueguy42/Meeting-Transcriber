@@ -1,0 +1,52 @@
+  html, body { margin: 0; background: transparent; overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default;
+    font: 12px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; }
+  .bar { box-sizing: border-box; width: 64px; padding: 6px 0 10px; border-radius: 20px; background: #1e1f24;
+    border: 1px solid rgba(255,255,255,.14); display: flex; flex-direction: column; align-items: center; gap: 6px; color: #ececf0; }
+  .grip { height: 10px; margin-bottom: 4px; cursor: grab; }
+  .btn { width: 44px; height: 44px; border-radius: 12px; border: 0; padding: 0; background: transparent; color: #ececf0;
+    display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .btn.hov { background: rgba(255,255,255,.12); }
+  .btn.active { background: rgba(255,255,255,.16); }
+  .btn.off { color: #8d8e98; cursor: default; background: transparent; }
+  .btn.hide { height: 30px; color: #a9aab4; }
+  .btn.hide.hov { color: #ececf0; }
+  .btn.quit.hov { color: #ff6b61; background: rgba(255,69,58,.14); }
+  .btn.warn { color: #ffb340; background: rgba(255,179,64,.16); }
+  .btn.warn.hov { background: rgba(255,179,64,.28); }
+  .btn.off.hov { background: transparent; }
+  .btn.muted { background: rgba(255,69,58,.14); }
+  .btn.muted.hov { background: rgba(255,69,58,.24); }
+  .btn svg { display: block; }
+  /* the documents button: how many documents (blue: all read), or how many of them are read so far (amber) */
+  .dbadge { position: absolute; top: 1px; right: -5px; min-width: 18px; height: 18px; padding: 0 3px; box-sizing: border-box; border-radius: 9px; display: none;
+    align-items: center; justify-content: center; font-size: 10px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; white-space: nowrap;
+    background: #64a8ff; color: #0b1e33; border: 2px solid #1e1f24; }  /* a circle for one digit, a pill only as wide as "2/3" needs */
+  .dbadge.busy { background: #ffb340; color: #3a2400; }
+  .btn { position: relative; }
+  .ndot { position: absolute; top: 7px; right: 7px; width: 9px; height: 9px; border-radius: 50%; background: #64a8ff; border: 2px solid #1e1f24; box-sizing: content-box; display: none; }
+  .slash { display: none; }
+  .muted .slash, .tab .slash { display: block; }
+  .rec { position: relative; width: 48px; height: 48px; border-radius: 50%; border: 0; padding: 0; background: transparent;
+    cursor: pointer; flex: none; }
+  .rec .ring { position: absolute; inset: 0; }
+  .rec .face { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+  .rec .dot { width: 34px; height: 34px; border-radius: 50%; background: #ff453a; transition: all .15s; }
+  .recording .rec .dot { width: 20px; height: 20px; border-radius: 5px; }
+  .rec .glyph { display: none; }
+  .badge { position: absolute; top: -6px; right: -8px; min-width: 18px; height: 18px; border-radius: 9px; background: #64a8ff; color: #0b1e33;
+    font-size: 11px; font-weight: 600; display: none; align-items: center; justify-content: center; border: 2px solid #1e1f24; box-sizing: content-box; }
+  .timer { height: 14px; line-height: 14px; font-size: 12px; font-variant-numeric: tabular-nums; color: #a9aab4; white-space: nowrap; }
+  .recording .timer { color: #ececf0; }
+  .div { width: 32px; height: 1px; background: rgba(255,255,255,.14); margin: 2px 0; }
+  /* the panel never takes the keyboard, so a focus ring would only ever be a stuck leftover from a click */
+  button, button:focus, button:focus-visible { outline: none; }
+  .tab { box-sizing: border-box; width: 42px; padding: 10px 0; background: #1e1f24; border: 1px solid rgba(255,255,255,.14); color: #ececf0;
+    display: none; flex-direction: column; align-items: center; gap: 8px; font-size: 11px; font-variant-numeric: tabular-nums; cursor: pointer; }
+  .tab.edge-right { border-radius: 14px 0 0 14px; border-right: 0; }
+  .tab.edge-left { border-radius: 0 14px 14px 0; border-left: 0; }
+  .tab.hov { background: #2a2b31; }
+  .tab .tdot { width: 12px; height: 12px; border-radius: 50%; box-sizing: border-box; }
+  /* while the hidden tab is dragged it lifts off the edge: rounded all round */
+  .dragging .tab.edge-right, .dragging .tab.edge-left { border-radius: 14px; border: 1px solid rgba(255,255,255,.24); }
+  .hidden-mode .bar { display: none; }
+  .hidden-mode .tab { display: flex; }

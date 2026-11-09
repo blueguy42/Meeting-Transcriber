@@ -3,10 +3,10 @@
 __pycache__/
 *.pyc
 
-# Built app and Swift build output (recreate with ./build_app.sh)
+# Built app and Swift build output (recreate with ./scripts/build_app.sh)
 MeetingTranscriber.app/
-sck-audio/.build/
-launcher/.build/
+native/sck-audio/.build/
+native/launcher/.build/
 
 # macOS
 .DS_Store
@@ -15,3 +15,4 @@ launcher/.build/
 config.toml
 *.wav
 *.m4a
+*.egg-info/

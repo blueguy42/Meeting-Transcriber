@@ -1,0 +1,6 @@
+  html, body { margin: 0; background: transparent; overflow: hidden; -webkit-user-select: none; user-select: none; cursor: default;
+    font: 13px -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; color: #ececf0; }
+  /* The panels have no system window shadow (it is redrawn a beat late when the content changes, which showed as a
+     flicker); the cards draw their own, and this padding leaves room for it. overlay.py allows for the padding. */
+  #wrap { display: inline-flex; align-items: flex-start; gap: 4px; padding: 14px; }
+  .card { box-sizing: border-box; background: #2a2b31; border: 1px solid rgba(255,255,255,.14); border-radius: 12px; box-shadow: 0 6px 18px rgba(0,0,0,.4); }

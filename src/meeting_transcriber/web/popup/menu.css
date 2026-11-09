@@ -1,0 +1,6 @@
+  .menu { width: 210px; padding: 6px 0; }
+  .sub { margin-top: 7px; min-width: 170px; padding: 6px 0; visibility: hidden; }
+  .sub.on { visibility: visible; }
+  .row { display: flex; justify-content: space-between; align-items: center; gap: 16px; padding: 7px 12px; border-radius: 8px; margin: 0 4px; cursor: pointer; white-space: nowrap; }
+  .row.hov, .row.open { background: rgba(255,255,255,.12); }
+  .sep { height: 1px; background: rgba(255,255,255,.12); margin: 4px 8px; }

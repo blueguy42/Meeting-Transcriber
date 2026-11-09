@@ -84,7 +84,7 @@ record  ──▶  transcribe (on your Mac)  ──▶  summarize (Claude)  ─�
 Open Terminal in this project folder (in Finder, right-click the folder → *New Terminal at Folder*) and run:
 
 ```bash
-./build_app.sh
+./scripts/build_app.sh
 ```
 
 This takes a few minutes the first time and creates **MeetingTranscriber.app** in this folder. Drag it to Applications or
@@ -92,7 +92,7 @@ the Dock, then double-click it. A small control bar appears on the edge of your 
 
 - The first transcription downloads the speech model (about 3 GB, one time only). Telling people apart downloads two small
   models (about 35 MB) the first time it is used.
-- The app runs its code from **this project folder**. Keep the folder where it is; if you move it, run `./build_app.sh`
+- The app runs its code from **this project folder**. Keep the folder where it is; if you move it, run `./scripts/build_app.sh`
   again from the new location.
 - Rebuilding changes the app's signature, so macOS may ask for permissions again afterwards.
 
@@ -465,7 +465,7 @@ needs at least one modifier key, and the global ones must all differ.
 **Reset to defaults…** restores the original settings and keeps your old file as `config.toml.bak`.
 
 Settings are stored in `~/Library/Application Support/MeetingTranscriber/config.toml`. You can edit that file by hand too
-(see [`config.example.toml`](config.example.toml)); the app keeps your comments when it saves. If the file has a typo, you get
+(see [`resources/config.example.toml`](resources/config.example.toml)); the app keeps your comments when it saves. If the file has a typo, you get
 a notification and the previous settings stay in effect.
 
 ---
@@ -549,31 +549,31 @@ a notification and the previous settings stay in effect.
 | MCP server | `mcp` |
 | Summaries | the Claude Code CLI (`claude -p`), not a Python package |
 
-Python packages are listed in [`requirements.txt`](requirements.txt).
+Python packages are listed in [`pyproject.toml`](pyproject.toml).
 
-The Whisper model is fetched from Hugging Face the first time. `transcribe.ensure_model` checks that the weights file is present and not empty (an
+The Whisper model is fetched from Hugging Face the first time. `transcription.models.ensure_model` checks that the weights file is present and not empty (an
 interrupted download used to make transcribing hang), downloads it with progress shown in the panel, and gives up after 5 minutes
-without new bytes. Downloads use plain HTTP (`HF_HUB_DISABLE_XET=1`, set in `mt/log.py`) because they resume reliably.
+without new bytes. Downloads use plain HTTP (`HF_HUB_DISABLE_XET=1`, set in `meeting_transcriber/log.py`) because they resume reliably.
 
 ### Build and test
-`build_app.sh` builds the `sck-audio` Swift helper, creates `.venv` and installs `requirements.txt`, compiles a small native
+`scripts/build_app.sh` builds the `sck-audio` Swift helper, creates `.venv` and installs the project (`pip install -e .`), compiles a small native
 launcher, assembles `MeetingTranscriber.app`, ad-hoc code-signs it and registers the icon. The app is a thin launcher that
-starts `.venv/bin/python -m mt.app` from the project folder, so macOS attributes permissions to the app instead of to Terminal
+starts `.venv/bin/python -m meeting_transcriber` from the project folder, so macOS attributes permissions to the app instead of to Terminal
 or a bare Python binary. Logs go to `~/Library/Logs/MeetingTranscriber.log` (every line has a timestamp, level and source; the file rotates to `.log.1` at 5 MB).
 
 Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests need macOS and skip themselves elsewhere.)
 
 ### How the interface works
-- The app is an `NSApplication` with no Dock icon and no menu bar item. Everything is the **floating bar** (`mt/overlay/`):
-  a non-activating `NSPanel` hosting `mt/ui/overlay.html` in a `WKWebView`. The tooltip, More menu, processing panel and
-  documents list are four more panels (`mt/ui/popup.html`), and the notes panel (`mt/ui/notes.html`) is the one that can take
+- The app is an `NSApplication` with no Dock icon and no menu bar item. Everything is the **floating bar** (`meeting_transcriber/bar/`):
+  a non-activating `NSPanel` hosting `meeting_transcriber/web/overlay/` in a `WKWebView`. The tooltip, More menu, processing panel and
+  documents list are four more panels (`meeting_transcriber/web/popup/`), and the notes panel (`meeting_transcriber/web/notes/`) is the one that can take
   the keyboard (key-capable but non-activating, so the meeting app stays in front).
 - Pages talk to Python through a `WKScriptMessageHandler` (no web server, no open port). The app pushes state to the pages as
   JSON. Because these panels are never the active window, WebKit does not report the mouse, so Python reads the pointer
   position (global and local mouse monitors, plus a 60 Hz poll while it is over a panel), tells the pages what is hovered and
   sets the pointing-hand cursor itself. Lists are updated in place, never redrawn under the pointer, so clicks are not lost.
 - Panels are hidden from screenshots with `NSWindowSharingNone` (the *Show the bar in screenshots* setting rebuilds them).
-  Tooltips float one level above popups, and the device-changed toast (`show_toast`, `mt/devicetoast.py` decides its wording) one above those.
+  Tooltips float one level above popups, and the device-changed toast (`show_toast`, `meeting_transcriber/recording/device_toast.py` decides its wording) one above those.
   The recorder calls `on_device_change(track, device)` from its watcher threads; the app moves it to the main thread. The bar's position, hidden state and the notes panel size are kept in `overlay.json`
   next to `config.toml`.
 - Resizing a web view flickers, so the processing panel's window is always as tall as the toolbar and opening or closing a tab only changes what is drawn
@@ -583,7 +583,7 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   per-app `SetsCursorInBackground` property (`CGSSetConnectionProperty`, private API, called once when the bar is created).
 - Because the app has no menu bar, it installs a small hidden Edit menu at start-up so ⌘A/C/V/X/Z reach text boxes.
 - Global hotkeys use Carbon `RegisterEventHotKey`, which needs no Accessibility or Input Monitoring permission. Only the optional
-  snapping to parts inside a window (`mt/recording/snap.py`, `pyobjc-framework-ApplicationServices`) uses Accessibility; windows themselves come
+  snapping to parts inside a window (`meeting_transcriber/recording/snap.py`, `pyobjc-framework-ApplicationServices`) uses Accessibility; windows themselves come
   from `CGWindowListCopyWindowInfo`.
 
 ### How recording works
@@ -592,7 +592,7 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
 - **System audio:** the `sck-audio` helper uses ScreenCaptureKit on the first display (all system audio, excluding the app
   itself) and writes `recordings/system.wav`. It reports the start time of the first buffer so tracks can be aligned.
 - **Screenshots:** the display under the mouse is captured with Quartz at its real pixel resolution at the moment you press the
-  button (`mt/recording/screenshot.py`), shown full screen in a borderless window (`AreaSelector`) where you choose the area, and only the
+  button (`meeting_transcriber/recording/screenshot.py`), shown full screen in a borderless window (`AreaSelector`) where you choose the area, and only the
   chosen crop is scaled by `screenshot_scale` and saved as `shots/shot_<seconds>.jpg` (JPEG quality 80); the number is the time
   the screen froze. The window is hidden from screen sharing (`NSWindowSharingNone`), sits above the bar, and hands the keyboard
   back to the meeting app when it closes. A white flash confirms each added screenshot.
@@ -600,7 +600,7 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   writing); `resume()` restores the mute you had. At stop the paused stretches are cut out of `system.wav` (`cut_wav`), so both tracks are
   free of padding. `Recorder.elapsed()` is the recording's own clock (wall time minus pauses): the timer, notes, document and
   screenshot times all use it, so nothing needs shifting. `cancel()` stops everything and deletes the meeting folder, but only
-  when it is directly inside the meetings folder. The Stop-button flyout is `ctl` in `mt/ui/popup.html` / `mt/overlay/stop_menu.py`.
+  when it is directly inside the meetings folder. The Stop-button flyout is `ctl` in `meeting_transcriber/web/popup/` (`ctl.js`, `ctl.css`) / `meeting_transcriber/bar/stop_menu.py`.
 - **`meta.json`** stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
   `paused` (`[{"at": seconds into the recording, "for": seconds not recorded}]`: pauses are cut out of the audio, so every time
   here is in recording time) and `mic_muted` / `system_muted` (muted spans, in seconds from the start) and `mic_device` / `system_device` (the default
@@ -612,12 +612,12 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
 - **Muting** replaces audio with silence at the source (zeros in the mic callback; `--muted` flag plus `MUTE`/`UNMUTE`
   commands on the `sck-audio` helper's stdin). Files keep running, so they stay aligned with the clock and screenshots.
 - **Notes:** the page is a `contenteditable` box; a timestamp is a non-editable chip written out as `[mm:ss]` (`[h:mm:ss]` from
-  the first hour on). The page sends plain text after 1 s without typing (`SAVE_AFTER` in `notes.html`) and on close, stop and quit;
-  the app writes `notes.txt` atomically (`mt/notes.py`). The panel is at least its natural size, at most 1.5× as wide, and as
+  the first hour on). The page sends plain text after 1 s without typing (`SAVE_AFTER` in `web/notes/notes.js`) and on close, stop and quit;
+  the app writes `notes.txt` atomically (`meeting_transcriber/meetings/notes.py`). The panel is at least its natural size, at most 1.5× as wide, and as
   tall as the top of the bar allows; its bottom edge stays level with the notes button and it opens on the screen side of the bar.
 
 ### How transcription works
-Pause and cancel: the worker thread is bound to a `JobControl` (`mt/control.py`). The app's progress callback calls `check()` after every
+Pause and cancel: the worker thread is bound to a `JobControl` (`meeting_transcriber/processing/control.py`). The app's progress callback calls `check()` after every
 report, which raises `Stopped("pause" | "cancel")`, so a step stops at its next report. The transcription catches it and saves a
 `transcribe.partial.json` checkpoint in the meeting folder (the results of the finished bursts and the language guess carried between
 bursts, valid only for the same model, language, vocabulary and bursts); the next run skips those bursts, and a finished or cancelled
@@ -630,9 +630,9 @@ silence is skipped. Mic bursts whose loudness envelope mirrors the system audio 
 transcription. Language is detected per burst (a pause of 1.5 s or more starts a new one), limited to `allowed_languages`;
 very short bursts reuse the previous burst's language. Roughly 30× faster than real time on Apple Silicon.
 
-If speaker separation is on, the system track is also run through sherpa-onnx (`mt/transcription/diarize.py`). It is the third part of the
-*Transcribing* step in the progress panel: `diarize.py` reports progress through helpers in `mt/progress.py`
-(`diarizing(percent)`, `MATCHING_VOICES`, `downloading_model(n)`, `speakers_found(...)`), which `mt/jobs.py` turns into the
+If speaker separation is on, the system track is also run through sherpa-onnx (`meeting_transcriber/transcription/diarize.py`). It is the third part of the
+*Transcribing* step in the progress panel: `diarize.py` reports progress through helpers in `meeting_transcriber/processing/progress.py`
+(`diarizing(percent)`, `MATCHING_VOICES`, `downloading_model(n)`, `speakers_found(...)`), which `meeting_transcriber/processing/jobs.py` turns into the
 "Speakers" line (listed only when `diarize` is on; *Skipped* if the models could not be loaded). Pyannote segmentation cuts
 the track into speech turns, grouped by voice (3D-Speaker embeddings, CPU, ~25× real time). The groups are deliberately too
 fine; each is averaged into one voiceprint and groups whose voiceprints are close (cosine distance below 0.35) are merged,
@@ -644,12 +644,12 @@ The result is `transcript.md`: `[hh:mm:ss] Speaker: text` lines plus `(screensho
 and only replaced once transcription and speaker separation have both finished.
 
 ### How documents are read
-`mt/documents.py` keeps a manifest (`documents/documents.json`: unique id, original and stored name, kind, SHA-256, seconds
+`meeting_transcriber/meetings/documents.py` keeps a manifest (`documents/documents.json`: unique id, original and stored name, kind, SHA-256, seconds
 since the recording started, status, progress, a 300-character preview) and one low-priority background thread
 (`DocumentWorker`) that copies each file and reads its text into `documents/extracted/<name>.txt`:
 - **Text, Markdown:** read directly. **Word:** pandoc. **PowerPoint:** `python-pptx` (slide text, tables, speaker notes).
   **Excel:** `openpyxl` (cell values, up to 2,000 rows per sheet). **PDF:** the page text through PDFKit.
-- **OCR** (`mt/ocr.py`) uses Apple's Vision framework in accurate mode, languages `id-ID` and `en-US` where the Mac supports
+- **OCR** (`meeting_transcriber/meetings/ocr.py`) uses Apple's Vision framework in accurate mode, languages `id-ID` and `en-US` where the Mac supports
   them (the fast mode only knows six languages). Tests with simulated Indonesian scans gave 0% errors on clean text, 0.5% on
   10 px text once enlarged 2×, and about 20% on a blurry low-resolution photo. In a PDF each page is rendered at 150 dpi and
   read in strips about 800 px tall, because Vision can skip small text on a mostly empty full page; only the lines that are
@@ -660,7 +660,7 @@ since the recording started, status, progress, a 300-character preview) and one 
   summary waits for it. Deleting a document cancels its reading and removes the copy, the text and the entry.
 
 ### How summarizing works
-`mt/summarize.py` runs `claude -p` with the chosen prompt, the transcript and a calendar of the next 15 days (so "next Friday"
+`meeting_transcriber/summary/summarize.py` runs `claude -p` with the chosen prompt, the transcript and a calendar of the next 15 days (so "next Friday"
 resolves correctly) on stdin. Instructions that apply to every style are added after the style, in this order:
 - the **notes** (`notes.txt`, if `use_notes` is on) between markers: cover everything in them, use their `[mm:ss]` times to find
   the moment, don't label them as "from the notes", treat them as data;
@@ -708,41 +708,43 @@ All keys of `config.toml` (the Settings window edits the same file in place):
 | `use_documents` | `true` | give Claude the documents added to a meeting |
 | `documents_ocr` | `true` | whether the file chooser's OCR box starts ticked |
 
-Prompts live in `~/Library/Application Support/MeetingTranscriber/prompts/` (copied from `prompts/` on first run).
+Prompts live in `~/Library/Application Support/MeetingTranscriber/prompts/` (copied from `resources/prompts/` on first run).
 
 ### Command line (no app)
 ```bash
-.venv/bin/python -m mt.cli record                                      # Enter = stop, s+Enter = screenshot
-.venv/bin/python -m mt.cli process <meeting-dir>                       # transcribe + summarize
-.venv/bin/python -m mt.cli summarize <meeting-dir> action-items-only   # (re-)summarize, optional style name
+.venv/bin/python -m meeting_transcriber.cli record                                      # Enter = stop, s+Enter = screenshot
+.venv/bin/python -m meeting_transcriber.cli process <meeting-dir>                       # transcribe + summarize
+.venv/bin/python -m meeting_transcriber.cli summarize <meeting-dir> action-items-only   # (re-)summarize, optional style name
 ```
 
 ### Optional: ask Claude Desktop about past meetings (MCP)
 Add this to `claude_desktop_config.json`, then ask things like "what did we decide on Tuesday?":
 ```json
 "meetings": {"command": "/ABS/PATH/meeting-transcriber/.venv/bin/python",
-             "args": ["-m", "mt.mcp_server"], "cwd": "/ABS/PATH/meeting-transcriber"}
+             "args": ["-m", "meeting_transcriber.integrations.mcp_server"], "cwd": "/ABS/PATH/meeting-transcriber"}
 ```
 The server reads the meetings folder from your settings when it starts. Tools: `list_meetings`, `get_transcript`,
 `get_summary` (latest, or a given style), `get_screenshot`, `list_summary_prompts`.
 
 ### Project layout
+The Python code is the `meeting_transcriber` package in `src/`; paths below are inside it unless they say otherwise.
+
 | Path | Purpose |
 |---|---|
-| `mt/app.py` | the app itself: start-up, settings, status line, quitting. Its behaviour is split into `mt/recording_actions.py` (record, pause, mute, screenshots, notes, documents), `mt/processing.py` (summarize / transcribe jobs), `mt/overlay_host.py` (what the bar shows and what its buttons do), `mt/permission_flow.py` (macOS permission prompts) and `mt/desktop.py` (dialogs, notifications, Dock helpers) |
-| `mt/overlay/`, `mt/ui/overlay.html`, `mt/ui/popup.html` | the floating bar (`overlay.py`), with one module per popup: `tips`, `toast`, `menu`, `stop_menu`, `status` (processing tabs), `notes`, `docs`; `surfaces.py` holds the window and web-view classes |
-| `mt/notes.py`, `mt/ui/notes.html` | meeting notes: `notes.txt` storage, and the notes panel (a text box with timestamp chips) |
-| `mt/documents.py`, `mt/ocr.py` | meeting documents: copying, the manifest, reading each file type, the background reader, and Apple Vision OCR |
-| `mt/jobs.py`, `mt/progress.py` | progress of the meetings being processed |
-| `mt/control.py` | pausing and cancelling a meeting's processing (`Stopped` is raised from the progress reports) |
-| `mt/recording/` | `recorder.py` (mic + system audio, pause, mute), `clock.py` (recording time without pauses), `wavtools.py`, `coreaudio.py`, `device_events.py` (device-change toasts), `screen.py`, `screenshot.py` (choosing the area), `snap.py` (boxes to snap to), `flash.py` |
-| `mt/transcription/`, `mt/audio.py` | transcription: `models.py` (`ensure_model`: checks the model is complete, downloads it with progress), `analysis.py` (speech and echo detection), `decoding.py` (Whisper), `checkpoint.py` (resume after pause), `segments.py` (merging, labels, markers), `meeting.py` (the whole flow), `diarize.py`; audio compression in `audio.py` |
-| `mt/pipeline.py`, `mt/summarize.py`, `mt/docx_export.py` | processing flow, Claude summary, Word export |
-| `mt/config.py`, `mt/settings_api.py`, `mt/settings_window.py`, `mt/ui/settings.html` | settings storage, validation and window |
-| `mt/hotkeys.py`, `mt/permissions.py` | global hotkeys, macOS permissions |
-| `mt/cli.py`, `mt/mcp_server.py` | command line, MCP server |
-| `sck-audio/`, `launcher/` | Swift helpers: system-audio capture, app launcher |
-| `prompts/`, `assets/` | built-in summary styles, icons |
+| `app/` | the running app. `app.py` owns what the parts share (settings, recorder, jobs, the bar), the hotkeys and quitting, and puts four parts together: `recording_controller.py` (record, pause, mute, screenshots, notes, documents), `processing_controller.py` (summarize / transcribe jobs: queue, pause, resume, cancel), `permission_controller.py` (macOS permission prompts) and `bar_presenter.py` (what the bar shows and what its buttons do) |
+| `bar/`, `web/overlay/`, `web/popup/` | the floating bar (`bar.py`: placement, dragging, the pointer) and one class per popup beside it (all based on `popup.py`): `tips`, `toast`, `menu`, `stop_menu`, `status` (processing tabs), `notes`, `docs`; `host.py` is what the bar needs from the app; `surfaces.py` holds the window and web-view classes |
+| `meetings/` | `meeting.py` (`Meeting`: the one place that knows what a meeting folder holds and what each file is called), then what is in it: `notes.py` (`notes.txt`; panel in `web/notes.html`), `documents.py` (copying, the manifest, the background reader), `ocr.py` (Apple Vision), `audio.py` (the recorded tracks and shrinking them after transcribing) |
+| `recording/` | `recorder.py` (mic + system audio, pause, mute), `clock.py` (recording time without pauses), `wavtools.py`, `coreaudio.py`, `device_events.py` and `device_toast.py` (device changes and the toast wording), `screen.py`, `screenshot.py` (choosing the area), `snap.py` (boxes to snap to), `flash.py` |
+| `transcription/` | `transcribe.py` (the whole flow), `models.py` (`ensure_model`: checks the model is complete, downloads it with progress), `analysis.py` (speech and echo detection), `decoding.py` (Whisper), `checkpoint.py` (resume after pause), `segments.py` (merging, labels, markers), `diarize.py` (telling the other people apart, sherpa-onnx) |
+| `processing/` | `pipeline.py` (the processing flow), `jobs.py` and `progress.py` (progress of the meetings being processed), `control.py` (pausing and cancelling; `Stopped` is raised from the progress reports) |
+| `summary/` | `summarize.py` (the Claude summary), `docx_export.py` (Word export) |
+| `settings/` | `model.py` (`Settings`: every setting, typed, with its default; the names are the keys of `config.toml`), `config.py` (reading and writing `config.toml`, and paths), `api.py` (validation and the settings window's operations), `window.py` (the window; page in `web/settings/`) |
+| `web/` | the pages shown in the bar's panels and the Settings window. One folder per page (`overlay`, `popup`, `notes`, `settings`): `<name>.html` with its `.css` and `.js` files beside it, in the order the page lists them (`popup` has one pair per popup: `tip`, `toast`, `ctl`, `menu`, `status`, `docs`); `shared/` holds what every page uses; `__init__.py` writes a page's files into its HTML so the web view can load it |
+| `desktop/` | macOS glue: `macos.py` (main thread, dialogs, notifications, Dock), `hotkeys.py` (global hotkeys), `permissions.py` |
+| `integrations/mcp_server.py`, `cli.py`, `log.py` | MCP server for Claude Desktop, command line, logging |
+| `native/sck-audio/`, `native/launcher/` | Swift helpers: system-audio capture, app launcher |
+| `resources/` | built-in summary styles (`prompts/`), the app icon (`icons/`), `config.example.toml` |
+| `scripts/build_app.sh`, `pyproject.toml` | builds the `.app`; dependencies and the installable package |
 | `docs/screenshots/` | the design mockups used in this README |
 | `tests/` | unit tests |
 
@@ -759,10 +761,10 @@ The app is macOS-only today. A Windows version is planned; the macOS-specific pi
 | Screenshots | Quartz | `mss` / Pillow |
 | Text recognition (OCR) | Apple Vision | Windows OCR or Tesseract |
 | Floating bar | `NSPanel` + WKWebView (PyObjC) | a topmost frameless window |
-| Settings window | WKWebView (PyObjC) | `pywebview` (WebView2), same `settings.html` |
+| Settings window | WKWebView (PyObjC) | `pywebview` (WebView2), same `web/settings/` page |
 | Hotkeys | Carbon `RegisterEventHotKey` | Win32 `RegisterHotKey` |
 | Audio compression | `afconvert` | `ffmpeg` |
-| Packaging | `build_app.sh`, `.app` bundle | PyInstaller or similar, plus an installer |
+| Packaging | `scripts/build_app.sh`, `.app` bundle | PyInstaller or similar, plus an installer |
 
 Already portable: the processing pipeline, summarizing, the Word export, settings validation, prompts, the CLI and the MCP
 server. Contributions toward Windows support are welcome.

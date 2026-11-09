@@ -1,10 +1,6 @@
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt.devicetoast import DeviceToasts
+from meeting_transcriber.recording.device_toast import DeviceToasts
 
 
 class Clock:
@@ -46,7 +42,7 @@ class Messages(unittest.TestCase):
 
 class RecorderCallback(unittest.TestCase):
     def test_a_failing_callback_never_breaks_the_recorder(self):
-        from mt.recording import Recorder
+        from meeting_transcriber.recording import Recorder
 
         r = Recorder.__new__(Recorder)
         got = []

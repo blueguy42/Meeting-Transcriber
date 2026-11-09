@@ -1,0 +1,16 @@
+  /* the Pause / Cancel bar attached to the Stop button */
+  .ctl { display: flex; gap: 2px; padding: 4px 4px 4px 6px; background: #1e1f24; border-radius: 0 16px 16px 0; border-left: 0; box-shadow: 8px 10px 26px rgba(0,0,0,.4); }
+  .ctl.right { flex-direction: row-reverse; padding: 4px 6px 4px 4px; border-radius: 16px 0 0 16px; border-left: 1px solid rgba(255,255,255,.14); border-right: 0; box-shadow: -8px 10px 26px rgba(0,0,0,.4); }
+  .ctlclip { clip-path: inset(-30px -40px -40px 0); }  /* the bar slides out from behind the toolbar's edge: nothing shows on that side of the card */
+  .ctlclip.right { clip-path: inset(-30px 0 -40px -40px); }
+  .ctlclip.in .ctl { animation: ctlL .18s cubic-bezier(.2,.8,.2,1); }
+  .ctlclip.right.in .ctl { animation-name: ctlR; }
+  .ctlclip.out .ctl { animation: none; transition: transform .18s cubic-bezier(.5,0,.8,.4), opacity .18s; transform: translateX(-100%); opacity: 0; }
+  .ctlclip.right.out .ctl { transform: translateX(100%); }
+  @keyframes ctlL { from { transform: translateX(-100%); } to { transform: none; } }
+  @keyframes ctlR { from { transform: translateX(100%); } to { transform: none; } }
+  .cb { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; color: #ececf0; cursor: pointer; }
+  .cb.amb { color: #ffb340; }
+  .cb.red { color: #ff6b61; }
+  .cb.hov { background: rgba(255,255,255,.12); }
+  .cb.red.hov { background: rgba(255,69,58,.18); }

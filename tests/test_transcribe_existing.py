@@ -1,12 +1,12 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 from unittest import mock
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt import audio, pipeline
+from meeting_transcriber.meetings import audio
+from meeting_transcriber.meetings.meeting import Meeting
+from meeting_transcriber.processing import pipeline
+from meeting_transcriber.settings.model import Settings
 
 
 def meeting(files):
@@ -14,7 +14,7 @@ def meeting(files):
     (d / "recordings").mkdir(parents=True)
     for name in files:
         (d / "recordings" / name).write_bytes(b"x")
-    return d
+    return Meeting(d)
 
 
 class TranscribeExisting(unittest.TestCase):
@@ -25,21 +25,21 @@ class TranscribeExisting(unittest.TestCase):
 
     def test_runs_the_whole_pipeline_and_leaves_the_old_transcript_alone_until_the_new_one_is_done(self):
         d = meeting(["mic.m4a"])
-        (d / "transcript.md").write_text("old transcript")
+        (d.folder / "transcript.md").write_text("old transcript")
         seen = []
-        def fake_process(folder, cfg, prompt, progress):
-            seen.append((folder / "transcript.md").read_text())  # still the old one while the work is under way
-            return folder, folder / "summary.md"
+        def fake_process(m, cfg, prompt, progress):
+            seen.append(m.transcript_file.read_text())  # still the old one while the work is under way
+            return m, m.folder / "summary.md"
         with mock.patch.object(pipeline, "process", side_effect=fake_process):
-            out = pipeline.transcribe_existing(d, {"auto_summarize": True}, "default", progress=print)
+            out = pipeline.transcribe_existing(d, Settings(auto_summarize=True), "default", progress=print)
         self.assertEqual(seen, ["old transcript"])
-        self.assertFalse((d / "transcript.md.bak").exists())
-        self.assertEqual(out, (d, d / "summary.md"))
+        self.assertFalse((d.folder / "transcript.md.bak").exists())
+        self.assertEqual(out, (d, d.folder / "summary.md"))
 
     def test_refuses_a_meeting_without_a_recording(self):
         d = meeting([])
         with self.assertRaises(ValueError):
-            pipeline.transcribe_existing(d, {}, None)
+            pipeline.transcribe_existing(d, Settings(), None)
 
 
 if __name__ == "__main__":

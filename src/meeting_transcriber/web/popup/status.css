@@ -1,0 +1,57 @@
+  .status { width: 320px; padding: 6px 8px; display: flex; flex-direction: column; }
+  .status .rows { margin-right: -5px; }  /* the scrollbar's 5px gutter sits in the card's padding, so the buttons never move */
+  .hd { display: flex; align-items: center; justify-content: space-between; padding: 2px 4px 2px 6px; font-size: 12px; color: #a9aab4; flex: none; }
+  .hd .x { width: 28px; height: 28px; border-radius: 8px; }
+  .tb2 + .tb2 { border-top: 1px solid rgba(255,255,255,.1); }
+  .th { display: flex; align-items: center; gap: 8px; padding: 8px 4px 8px 6px; border-radius: 9px; cursor: pointer; }
+  .th.hov { background: rgba(255,255,255,.08); }
+  .th .chev { flex: none; width: 12px; margin-right: -2px; color: #8d8e98; display: flex; }
+  .th .si { flex: none; width: 18px; display: flex; justify-content: center; }
+  .th .tt { flex: 1; min-width: 0; }
+  .th .tt b { display: block; font-size: 13px; font-weight: 600; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .th .tt small { display: block; font-size: 12px; color: #a9aab4; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .th .tt small.amb { color: #ffb340; }
+  .th .tt small.red { color: #ff8a80; }
+  .th .tt small.grn { color: #7be495; }
+  .ib { display: flex; gap: 2px; flex: none; }
+  .ib i { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: #c9cad2; font-style: normal; cursor: pointer; }
+  .ib i.hov { background: rgba(255,255,255,.14); color: #fff; }
+  .ib i.amb { color: #ffb340; }
+  .ib i.red { color: #ff8a80; }
+  .ib i.red.hov { background: rgba(255,69,58,.2); }
+  .tbody { padding: 0 6px 8px 24px; }  /* the steps' icons line up with the tab's status icon, not its arrow */
+  .tfoot { flex: none; padding: 4px 6px 4px; }
+  .head { display: flex; align-items: center; justify-content: space-between; margin: -4px -6px 4px 0; min-height: 24px; }
+  .head span { font-size: 12px; color: #a9aab4; }
+  .x { width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #a9aab4; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+  .x.hov { background: rgba(255,255,255,.12); color: #fff; }
+  .step { display: flex; gap: 8px; align-items: flex-start; padding: 5px 0; font-size: 13px; line-height: 1.3; color: #ececf0; }
+  .step.now { color: #fff; }
+  .step.todo { color: #a9aab4; }
+  .step .ic { flex: none; width: 18px; display: flex; justify-content: center; padding-top: 1px; }
+  .step small { display: block; font-size: 12px; color: #a9aab4; }
+  .kid { display: flex; gap: 8px; align-items: center; margin: 0 0 2px 10px; padding: 3px 0 3px 12px; border-left: 1px solid rgba(255,255,255,.18); font-size: 12px; }
+  .kid.now { color: #fff; }
+  .kid.paused { color: #fff; }
+  .kid.paused .r { color: #ffb340; }
+  .step.paused, .step.cancelled { color: #fff; }
+  .step.cancelled { color: #a9aab4; }
+  .ptag { font-size: 12px; color: #ffb340; margin: 0 0 2px; }
+  .ptag.red { color: #ff8a80; }
+  .snote { font-size: 12px; color: #a9aab4; margin-top: 6px; line-height: 1.35; }
+  .b.pz { color: #ffb340; }
+  .b.cn { color: #ff8a80; }
+  .b .bi { display: inline-flex; margin-right: 6px; }
+  .kid .r { margin-left: auto; color: #a9aab4; white-space: nowrap; }
+  .ring { width: 12px; height: 12px; border-radius: 50%; border: 1.5px solid #8d8e98; box-sizing: border-box; margin-top: 2px; }
+  .spin { width: 13px; height: 13px; border-radius: 50%; border: 2.5px solid #64a8ff; border-right-color: transparent; box-sizing: border-box; animation: spin 1s linear infinite; margin-top: 1px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .job + .job { border-top: 1px solid rgba(255,255,255,.12); margin-top: 8px; padding-top: 8px; }
+  .jname { font-size: 12px; color: #a9aab4; margin-bottom: 2px; }
+  .err { color: #ff8a80; font-size: 12px; line-height: 1.35; padding: 4px 0; }
+  .btns { display: flex; gap: 8px; margin-top: 8px; }
+  .b { flex: 1 1 0; min-width: 0; height: 30px; border: 0; border-radius: 8px; background: rgba(255,255,255,.14); color: #fff; font: inherit; font-size: 12px; cursor: pointer; display: flex; align-items: center; justify-content: center; white-space: nowrap; }
+  .b.hov { background: rgba(255,255,255,.22); }
+  .b.main { background: #f2f2f5; color: #1e1f24; font-weight: 600; }
+  .b.main.hov { background: #fff; }
+  .note { font-size: 12px; color: #a9aab4; margin-top: 6px; line-height: 1.35; }

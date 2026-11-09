@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Settings</title>
+<link rel="stylesheet" href="settings.css">
+</head>
+<body>
+<nav role="tablist">
+  <button role="tab" id="t-recording" aria-selected="true" data-tab="recording">Recording</button>
+  <button role="tab" id="t-transcription" aria-selected="false" data-tab="transcription">Transcription</button>
+  <button role="tab" id="t-summaries" aria-selected="false" data-tab="summaries">Summaries</button>
+  <button role="tab" id="t-styles" aria-selected="false" data-tab="styles">Summary styles</button>
+  <button role="tab" id="t-shortcuts" aria-selected="false" data-tab="shortcuts">Shortcuts</button>
+</nav>
+
+<main>
+  <!-- ===== Recording: what is captured, and where it goes ===== -->
+  <section class="tab" id="tab-recording">
+    <fieldset>
+      <legend>Meetings</legend>
+      <div class="row"><label for="meetings_dir">Folder</label>
+        <div><div class="inline"><input type="text" id="meetings_dir" spellcheck="false">
+        <button class="btn" id="choose">Choose…</button><button class="btn" id="openDir">Open</button></div>
+        <div class="hint">Every meeting gets its own folder here, with the recording, transcript, summary and screenshots.</div></div></div>
+      <div class="row"><label for="compress_audio">Audio files</label>
+        <div><select id="compress_audio">
+          <option value="aac">Compress to AAC · about 30 MB per hour (recommended)</option>
+          <option value="flac">Compress to FLAC · lossless, about 110 MB per hour</option>
+          <option value="off">Keep the original WAV · about 230 MB per hour</option></select>
+        <div class="hint">Happens after the transcript is saved. The original is only deleted once the compressed copy checks out.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Microphone and system audio</legend>
+      <div class="row"><label>When the app starts</label>
+        <div><label class="check"><input type="checkbox" id="start_muted_mic"> Mute the microphone</label>
+        <label class="check"><input type="checkbox" id="start_muted_system"> Mute system audio</label>
+        <div class="hint">Muted audio is not recorded. You can mute or unmute at any time, even between meetings, from the floating bar or with the shortcuts.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Screenshots</legend>
+      <div class="row"><label>Screen resolution</label>
+        <div><div class="choices" id="screenshot_scale" role="radiogroup"></div>
+        <div class="hint">The area you select is saved at this share of your screen’s real resolution (sizes shown for your main display). Smaller screenshots keep the summary request light.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Floating bar</legend>
+      <div class="row"><label>Screen sharing</label>
+        <div><label class="check"><input type="checkbox" id="overlay_in_captures"> Show the bar in screenshots and screen shares</label>
+        <div class="hint">Off by default: the bar stays out of your screenshots and out of what others see when you share your screen. Takes effect right away.</div></div></div>
+    </fieldset>
+  </section>
+
+  <!-- ===== Transcription: turning the audio into text ===== -->
+  <section class="tab" id="tab-transcription" hidden>
+    <fieldset>
+      <legend>Speech recognition</legend>
+      <div class="row"><label for="language">Language</label>
+        <div><select id="language">
+          <option value="auto">Detect automatically (Indonesian and English)</option>
+          <option value="id">Indonesian</option><option value="en">English</option></select>
+        <div class="hint">Automatic works for meetings that switch between the two.</div></div></div>
+      <div class="row"><label for="model">Model</label>
+        <div><select id="model">
+          <option value="mlx-community/whisper-large-v3-mlx">Large v3 · best quality</option>
+          <option value="mlx-community/whisper-large-v3-turbo">Large v3 turbo · faster (downloads on first use)</option></select>
+        <div class="hint">Runs on your Mac. No audio leaves it.</div></div></div>
+      <div class="row"><label for="vocabulary">Names and terms</label>
+        <div><textarea id="vocabulary" rows="3" placeholder="Budi, Dina, Tokopedia"></textarea>
+        <div class="hint">People, products and jargon to spell correctly. Separate with commas or new lines.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Speakers</legend>
+      <div class="row"><label>Other people</label>
+        <div><label class="check"><input type="checkbox" id="diarize"> Tell them apart in the transcript</label>
+        <div class="hint">They are numbered by how much they talk: Others 1, Others 2… Runs on your Mac, adds a few minutes per hour of meeting, and downloads about 35 MB the first time.</div></div></div>
+      <div class="row"><label for="diarize_speakers">Number of people</label>
+        <div><select id="diarize_speakers"><option value="0">Work it out automatically</option></select>
+        <div class="hint">If people get merged or split wrongly, set how many other people were on the call.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Labels in the transcript</legend>
+      <div class="row"><label for="my_label">Your microphone</label><div><input type="text" id="my_label" maxlength="30"></div></div>
+      <div class="row"><label for="others_label">Everyone else</label>
+        <div><input type="text" id="others_label" maxlength="30">
+        <div class="hint">How lines are tagged, for example “Me: …” and “Others 1: …”. The two labels must differ.</div></div></div>
+    </fieldset>
+  </section>
+
+  <!-- ===== Summaries: what Claude writes after a meeting ===== -->
+  <section class="tab" id="tab-summaries" hidden>
+    <fieldset>
+      <legend>After a recording</legend>
+      <div class="row"><label>Summary</label>
+        <div><label class="check"><input type="checkbox" id="auto_summarize"> Summarize automatically with Claude</label>
+        <div class="hint">If off, you only get the transcript. Use ⋮ → Summarize a meeting… in the floating bar whenever you want a summary.</div></div></div>
+      <div class="row"><label>Word document</label>
+        <div><label class="check"><input type="checkbox" id="export_docx"> Also save each summary as a .docx</label>
+        <div class="hint">For every summary, automatic or manual.</div></div></div>
+      <div class="row"><label>Meeting notes</label>
+        <div><label class="check"><input type="checkbox" id="use_notes"> Use my notes when summarizing</label>
+        <div class="hint">Notes you take during a meeting are saved as notes.txt in its folder and sent to Claude with the transcript.</div></div></div>
+      <div class="row"><label>Documents</label>
+        <div><label class="check"><input type="checkbox" id="use_documents"> Use documents I add when summarizing</label>
+        <div class="hint">Documents added during a meeting are copied to its folder. Claude gets a list with a short preview of each and opens the ones that matter, by file path.</div></div></div>
+      <div class="row"><label>Reading images</label>
+        <div><label class="check"><input type="checkbox" id="documents_ocr"> Read text in images (OCR) by default</label>
+        <div class="hint">Uses Apple's text recognition on your Mac, so nothing leaves it for this step. You can still change it each time in the file picker.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Style</legend>
+      <div class="row"><label for="default_prompt">Default style</label>
+        <div><div class="inline"><select id="default_prompt"></select><button class="btn" id="editStyles">Edit styles…</button></div>
+        <div class="hint">A style is the set of instructions Claude follows when writing a summary. You can also change it from the floating bar.</div></div></div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Claude</legend>
+      <div class="row"><label for="claude_path">Claude Code CLI</label>
+        <div><input type="text" id="claude_path" spellcheck="false" placeholder="Leave empty to find it automatically">
+        <div class="hint" id="claudeFound"></div></div></div>
+      <div class="row"><label for="claude_model">Model</label>
+        <div><input type="text" id="claude_model" spellcheck="false" placeholder="Leave empty to use your Claude Code default">
+        <div class="hint">Summaries use your Claude subscription through the Claude Code CLI. The transcript and your screenshots are sent to Claude.</div></div></div>
+    </fieldset>
+  </section>
+
+  <!-- ===== Summary styles: the editor ===== -->
+  <section class="tab" id="tab-styles" hidden>
+    <div class="prompts">
+      <div class="list" id="promptList"></div>
+      <div class="editor">
+        <div class="hint" id="promptHint">The instructions Claude follows when summarizing. Changes apply to the next summary.</div>
+        <textarea id="promptText" spellcheck="false"></textarea>
+        <div class="actions">
+          <button class="btn primary" id="savePrompt">Save style</button>
+          <button class="btn" id="resetPrompt">Reset to default</button>
+          <button class="btn" id="renamePrompt">Rename…</button>
+          <button class="btn danger" id="deletePrompt">Delete…</button>
+          <span class="grow"></span>
+          <button class="btn" id="newPrompt">New style…</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Shortcuts ===== -->
+  <section class="tab" id="tab-shortcuts" hidden>
+    <fieldset>
+      <legend>Global shortcuts</legend>
+      <div class="row"><label>Start or stop recording</label>
+        <div><input type="text" class="keys" id="hotkey_record" readonly></div></div>
+      <div class="row"><label>Mute microphone</label>
+        <div><input type="text" class="keys" id="hotkey_mute_mic" readonly></div></div>
+      <div class="row"><label>Mute system audio</label>
+        <div><input type="text" class="keys" id="hotkey_mute_system" readonly></div></div>
+      <div class="row"><label>Take a screenshot</label>
+        <div><input type="text" class="keys" id="hotkey_screenshot" readonly></div></div>
+      <div class="row"><label>Open meeting notes</label>
+        <div><input type="text" class="keys" id="hotkey_notes" readonly></div></div>
+      <div class="row"><label>Add documents</label>
+        <div><input type="text" class="keys" id="hotkey_documents" readonly>
+        <div class="hint">They work in any app, and the mute shortcuts switch back and forth. Click a box, then press the combination (it needs Ctrl, Option, Shift or Command). Esc cancels.</div></div></div>
+    </fieldset>
+    <fieldset>
+      <legend>In the notes panel</legend>
+      <div class="row"><label>Insert the time</label>
+        <div><input type="text" class="keys" id="hotkey_notes_time" readonly>
+        <div class="hint">Puts the recording time ([12:34]) at the cursor, same as the Add time button. Only works while the notes panel is open.</div></div></div>
+    </fieldset>
+  </section>
+</main>
+
+<footer>
+  <span id="status" role="status" aria-live="polite"></span>
+  <button class="btn" id="resetAll">Reset to defaults…</button>
+  <button class="btn primary" id="save">Save settings</button>
+</footer>
+
+<dialog id="dlg">
+  <form method="dialog">
+    <h3 id="dlgTitle"></h3><p id="dlgBody"></p>
+    <input type="text" id="dlgInput" hidden>
+    <div class="actions"><button class="btn" value="cancel" id="dlgCancel">Cancel</button>
+      <button class="btn primary" value="ok" id="dlgOk">OK</button></div>
+  </form>
+</dialog>
+
+<script src="settings.js"></script>
+</body>
+</html>

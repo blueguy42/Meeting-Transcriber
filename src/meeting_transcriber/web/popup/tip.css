@@ -1,0 +1,6 @@
+  .tip { border-radius: 10px; padding: 7px 12px; white-space: pre; }  /* pre: a tooltip may have several lines */
+  .tip .tt { font-weight: 600; margin-bottom: 4px; }
+  .tip .ts { color: #a9aab4; }
+  .tip .li { display: flex; align-items: center; gap: 8px; padding: 2px 0; }
+  .tip .li::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: #ffb340; flex: none; }  /* amber, like the warning button */
+  .k { color: #a9aab4; margin-left: 8px; }

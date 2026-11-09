@@ -1,11 +1,8 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt.transcription import models
+from meeting_transcriber.transcription import models
 
 
 class EnsureModel(unittest.TestCase):

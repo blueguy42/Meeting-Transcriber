@@ -1,0 +1,27 @@
+  /* the documents list */
+  .docs { width: 380px; padding: 12px 14px; display: flex; flex-direction: column; }
+  .dh { display: flex; align-items: center; justify-content: space-between; margin: -2px -5px 6px 0; flex: none; }
+  .dh b { font-size: 13px; font-weight: 600; }
+  .dh .n { font-size: 12px; color: #a9aab4; margin-left: 8px; font-weight: 400; }
+  .rows { flex: 1; min-height: 0; overflow-y: scroll; margin-right: -10px; }  /* the 5px scrollbar gutter is always there: the rows end 5px past the card's padding, like the close button */
+  .rows::-webkit-scrollbar { width: 5px; }
+  .rows::-webkit-scrollbar-track { background: transparent; }
+  .rows::-webkit-scrollbar-thumb { background: rgba(255,255,255,.3); border-radius: 3px; }
+  .dr { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0 8px 6px; border-radius: 9px; }
+  .b, .x, .tr, .row { cursor: pointer; }
+  .dr + .dr { margin-top: 2px; }
+  .ft { flex: none; width: 30px; height: 36px; border-radius: 6px; display: flex; align-items: flex-end; justify-content: center; padding-bottom: 4px; box-sizing: border-box; font: 700 9px -apple-system, sans-serif; letter-spacing: .02em; }
+  .ft.pdf { background: rgba(255,107,97,.18); color: #ff8a80; } .ft.docx { background: rgba(100,168,255,.2); color: #9dc0ff; } .ft.pptx { background: rgba(255,179,64,.2); color: #ffb340; }
+  .ft.xlsx { background: rgba(48,209,88,.18); color: #7be495; } .ft.txt { background: rgba(255,255,255,.12); color: #c9cad2; } .ft.img { background: rgba(191,130,255,.2); color: #d1a8ff; }
+  .dm { flex: 1; min-width: 0; }
+  .dn { font-size: 13px; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dd { font-size: 12px; color: #a9aab4; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pb { height: 3px; border-radius: 2px; background: rgba(255,255,255,.14); margin-top: 6px; overflow: hidden; } .pb i { display: block; height: 100%; background: #64a8ff; border-radius: 2px; }
+  .ds { flex: none; display: flex; align-items: center; gap: 6px; font-size: 12px; color: #a9aab4; white-space: nowrap; padding-top: 2px; }
+  .ds.ok { color: #7be495; } .ds.warn { color: #ffb340; } .ds.err { color: #ff8a80; }
+  .tr { flex: none; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: #a9aab4; display: flex; align-items: center; justify-content: center; cursor: pointer; margin-top: -1px; }
+  .tr.hov { background: rgba(255,69,58,.2); color: #ff6b61; }
+  .dfoot { margin-top: 8px; flex: none; }
+  .dfoot .b { width: 100%; flex: none; }
+  .empty { padding: 22px 10px 14px; text-align: center; color: #a9aab4; font-size: 12.5px; line-height: 1.45; }
+  .empty b { display: block; color: #fff; font-size: 13px; margin-bottom: 4px; }

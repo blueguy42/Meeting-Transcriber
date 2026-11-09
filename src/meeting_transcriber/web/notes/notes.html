@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width">
+<link rel="stylesheet" href="notes.css">
+</head>
+<body>
+<div id="wrap"><div class="card" id="card">
+  <div class="edge top" id="edgeTop"></div><div class="edge side" id="edgeSide"></div>
+  <div id="grip" aria-label="Resize the notes" title="Drag to resize"><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" aria-hidden="true"><path d="M1 9L9 1M1 5.5L5.5 1"/></svg></div>
+  <div class="head"><div><b>Meeting notes</b></div>
+    <button class="x" id="close" aria-label="Close notes"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>
+  <div id="ed" contenteditable="true" spellcheck="false" autocorrect="off" autocapitalize="off" role="textbox" aria-multiline="true" aria-label="Meeting notes"
+       data-ph="Type anything worth remembering. Plain text, saved as you type.&#10;&#10;Claude reads your notes together with the transcript, so mark what matters: decisions, names, numbers."></div>
+  <div class="foot"><span id="saved"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span id="savedText">Saved</span></span>
+    <button class="chip" id="addtime">Add time<span id="timeLabel">⌘T</span></button></div>
+</div></div>
+<script src="../shared/bridge.js"></script>
+<script src="notes.js"></script>
+</body>
+</html>

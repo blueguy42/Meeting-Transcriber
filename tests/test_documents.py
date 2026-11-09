@@ -1,11 +1,10 @@
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt import documents, ocr
+from meeting_transcriber.meetings import documents, ocr
+from meeting_transcriber.meetings.meeting import Meeting
+from meeting_transcriber.settings.model import Settings
 
 TEXT_LINES = ["Rapat Evaluasi Anggaran Kuartal IV 2026", "Pagu anggaran ditetapkan Rp 120.000.000, bukan Rp 150.000.000.",
               "Penanggung jawab daftar vendor: Dina, tenggat Jumat 24 Oktober 2026."]
@@ -25,7 +24,7 @@ def picture(path: Path, size: int = 30) -> Path:
 
 
 def read_all(tmp: Path, src: Path, ocr_on=True) -> tuple[dict, str]:
-    meeting = tmp / "meeting"
+    meeting = Meeting(tmp / "meeting")
     new, skipped = documents.add(meeting, [src], 12, ocr_on)
     assert not skipped, skipped
     documents.process(meeting, new[0])
@@ -42,7 +41,7 @@ class Manifest(unittest.TestCase):
             (t / "a" / "plan.txt").write_text("one"); (t / "b" / "plan.txt").write_text("two")
             (t / "same.txt").write_text("one")  # same content as a/plan.txt
             (t / "x.exe").write_text("no")
-            meeting = t / "m"
+            meeting = Meeting(t / "m")
             new, skipped = documents.add(meeting, [t / "a" / "plan.txt", t / "b" / "plan.txt", t / "same.txt", t / "x.exe", t / "none.pdf"], 5, True)
             self.assertEqual([d["stored"] for d in new], ["plan.txt", "plan (2).txt"])  # same name, different file: both kept
             self.assertEqual(len(skipped), 3)
@@ -51,19 +50,19 @@ class Manifest(unittest.TestCase):
             for d in new:
                 documents.process(meeting, d)
             self.assertEqual({d["status"] for d in documents.load(meeting)}, {"ready"})
-            self.assertEqual((meeting / "documents" / "plan (2).txt").read_text(), "two")
+            self.assertEqual((meeting.documents_dir / "plan (2).txt").read_text(), "two")
 
     def test_delete_removes_copy_text_and_entry(self):
         with tempfile.TemporaryDirectory() as t:
             t = Path(t)
             (t / "n.txt").write_text("hello")
-            meeting = t / "m"
+            meeting = Meeting(t / "m")
             new, _ = documents.add(meeting, [t / "n.txt"], 5, False)
             documents.process(meeting, new[0])
             self.assertTrue(documents.extracted_file(meeting, new[0]).exists())
             self.assertTrue(documents.delete(meeting, new[0]["id"]))
             self.assertEqual(documents.load(meeting), [])
-            self.assertFalse((meeting / "documents" / "n.txt").exists())
+            self.assertFalse((meeting.documents_dir / "n.txt").exists())
             self.assertFalse(documents.extracted_file(meeting, new[0]).exists())
             self.assertTrue((t / "n.txt").exists())  # your original is never touched
             self.assertFalse(documents.delete(meeting, new[0]["id"]))
@@ -73,7 +72,7 @@ class Manifest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as t:
             t = Path(t)
             (t / "a.txt").write_text("Anggaran")
-            first, second = t / "m1", t / "m2"
+            first, second = Meeting(t / "m1"), Meeting(t / "m2")
             new, _ = documents.add(first, [t / "a.txt"], 5, False)
             self.assertTrue(documents.delete(first, new[0]["id"]))  # deleted while still queued
             again, _ = documents.add(second, [t / "a.txt"], 7, False)
@@ -81,7 +80,7 @@ class Manifest(unittest.TestCase):
             documents.process(second, again[0])
             d = documents.get(second, again[0]["id"])
             self.assertEqual(d["status"], "ready")
-            self.assertTrue((second / "documents" / "a.txt").exists())
+            self.assertTrue((second.documents_dir / "a.txt").exists())
             self.assertTrue(documents.extracted_file(second, d).exists())
 
     def test_preview(self):
@@ -155,19 +154,19 @@ if __name__ == "__main__":
 
 class Summary(unittest.TestCase):
     def test_list_and_markers(self):
-        from mt.summarize import documents_block, documents_count, with_document_markers
+        from meeting_transcriber.summary.summarize import documents_block, documents_count, with_document_markers
 
         with tempfile.TemporaryDirectory() as t:
             t = Path(t)
             (t / "a.txt").write_text("Anggaran Kuartal IV 2026. Ringkasan pagu per divisi.")
             (t / "b.txt").write_text("Agenda rapat.")
-            meeting = t / "m"
+            meeting = Meeting(t / "m")
             new, _ = documents.add(meeting, [t / "a.txt", t / "b.txt"], 3, False)
             new[1]["added_at"] = 65
             documents.update(meeting, new[1]["id"], added_at=65)
             for d in documents.load(meeting):
                 documents.process(meeting, d)
-            cfg = {"use_documents": True}
+            cfg = Settings(use_documents=True)
             block = documents_block(meeting, cfg)
             self.assertIn("1. a.txt", block)
             self.assertIn("added at [00:03]", block)
@@ -175,7 +174,7 @@ class Summary(unittest.TestCase):
             self.assertIn("text: documents/extracted/a.txt.txt", block)
             self.assertIn('preview: "Anggaran Kuartal IV 2026.', block)
             self.assertEqual(documents_count(meeting, cfg), 2)
-            self.assertEqual(documents_block(meeting, {"use_documents": False}), "")
+            self.assertEqual(documents_block(meeting, Settings(use_documents=False)), "")
             documents.delete(meeting, new[0]["id"])  # deleted: no longer listed, no marker
             self.assertNotIn("a.txt", documents_block(meeting, cfg))
             docs = documents.load(meeting)

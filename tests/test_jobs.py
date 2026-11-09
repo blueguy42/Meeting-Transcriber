@@ -1,11 +1,8 @@
-import sys
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt import progress
-from mt.jobs import Tracker, display_name
+from meeting_transcriber.processing import progress
+from meeting_transcriber.processing.jobs import Tracker, display_name
 
 
 class ProgressMessages(unittest.TestCase):
@@ -28,7 +25,7 @@ class ProgressMessages(unittest.TestCase):
 
 class Hotkeys(unittest.TestCase):
     def test_fmt_hotkey(self):
-        from mt.hotkeys import fmt_hotkey
+        from meeting_transcriber.desktop.hotkeys import fmt_hotkey
 
         self.assertEqual(fmt_hotkey("<ctrl>+<alt>+r"), "⌃⌥R")
         self.assertEqual(fmt_hotkey("<cmd>+<shift>+<f5>"), "⌘⇧F5")

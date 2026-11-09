@@ -1,0 +1,13 @@
+  /* the device-changed toast: one line, an icon, "Mic: device" */
+  .toast { display: flex; align-items: center; gap: 10px; padding: 9px 14px 9px 9px; white-space: nowrap; border-radius: 12px; transition: opacity .25s; }
+  .toast { animation: toastin .25s; }
+  @keyframes toastin { from { opacity: 0; } to { opacity: 1; } }
+  .toast.fade { opacity: 0; animation: none; }
+  .toast .ic { flex: none; width: 32px; height: 32px; border-radius: 9px; background: rgba(100,168,255,.18); color: #9dc0ff; display: flex; align-items: center; justify-content: center; }
+  .toast .l { color: #a9aab4; }
+  .toast b { color: #fff; font-weight: 600; }
+  .toast .two { position: relative; width: 28px; height: 28px; }
+  .toast .two svg { position: absolute; }
+  .toast .two svg:nth-child(1) { left: 0; top: 0; }
+  .toast .two svg:nth-child(3) { right: 0; bottom: 0; }
+  .toast .two i { position: absolute; left: 50%; top: 1px; bottom: 1px; width: 1.5px; margin-left: -.75px; background: #9dc0ff; opacity: .7; transform: rotate(45deg); border-radius: 1px; }

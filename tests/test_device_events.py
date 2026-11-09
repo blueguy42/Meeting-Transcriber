@@ -1,10 +1,6 @@
-import sys
 import unittest
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt.recording.device_events import merged_events
+from meeting_transcriber.recording.device_events import merged_events
 
 
 class Merged(unittest.TestCase):

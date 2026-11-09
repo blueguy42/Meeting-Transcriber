@@ -1,5 +1,4 @@
 import os
-import subprocess
 import sys
 import tempfile
 import time
@@ -9,11 +8,12 @@ from types import SimpleNamespace
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
-from mt import control, progress, summarize
-from mt.transcription import checkpoint, decoding, meeting
-from mt.jobs import Tracker
+from meeting_transcriber.processing import control, progress
+from meeting_transcriber.summary import summarize
+from meeting_transcriber.meetings.meeting import Meeting
+from meeting_transcriber.transcription import checkpoint, decoding, transcribe
+from meeting_transcriber.processing.jobs import Tracker
+from meeting_transcriber.settings.model import Settings
 
 
 class Control(unittest.TestCase):
@@ -46,12 +46,12 @@ class Checkpoint(unittest.TestCase):
 
         sys.modules["mlx_whisper"] = SimpleNamespace(transcribe=fake_transcribe)
         self.addCleanup(lambda: sys.modules.pop("mlx_whisper", None))
-        self.cfg = {"model": "m", "language": "en", "allowed_languages": ["en"], "vocabulary": []}
+        self.cfg = Settings(model="m", language="en", allowed_languages=["en"], vocabulary=[])
         self.audio = np.zeros(16000 * 60, dtype=np.float32)
         self.regions = [(i * 100, i * 100 + 50) for i in range(6)]  # six bursts (envelope frames)
 
     def test_a_pause_keeps_the_finished_bursts_and_resume_does_the_rest(self):
-        d = Path(tempfile.mkdtemp())
+        d = Meeting(tempfile.mkdtemp())
         ck = checkpoint.Checkpoint(d)
 
         def stop_at_three(f):
@@ -61,7 +61,7 @@ class Checkpoint(unittest.TestCase):
         with self.assertRaises(control.Stopped):
             decoding.transcribe_regions(self.audio, self.regions, self.cfg, 0.0, "Me", stop_at_three, ck=ck)
         self.assertEqual(self.calls, 3)
-        self.assertTrue((d / checkpoint.PARTIAL).exists())
+        self.assertTrue(d.partial_file.exists())
         # the next run (a new Checkpoint object, as after a restart of the job) continues with burst 4
         out = decoding.transcribe_regions(self.audio, self.regions, self.cfg, 0.0, "Me", ck=checkpoint.Checkpoint(d))
         self.assertEqual(self.calls, 6)  # only three more bursts were transcribed
@@ -69,7 +69,7 @@ class Checkpoint(unittest.TestCase):
         self.assertEqual([s["text"] for s in out][:3], ["hello there number 1", "hello there number 2", "hello there number 3"])
 
     def test_a_changed_setting_starts_over(self):
-        d = Path(tempfile.mkdtemp())
+        d = Meeting(tempfile.mkdtemp())
         ck = checkpoint.Checkpoint(d)
 
         def stop_at_two(f):
@@ -79,17 +79,17 @@ class Checkpoint(unittest.TestCase):
         with self.assertRaises(control.Stopped):
             decoding.transcribe_regions(self.audio, self.regions, self.cfg, 0.0, "Me", stop_at_two, ck=ck)
         before = self.calls
-        decoding.transcribe_regions(self.audio, self.regions, {**self.cfg, "model": "other"}, 0.0, "Me", ck=checkpoint.Checkpoint(d))
+        decoding.transcribe_regions(self.audio, self.regions, self.cfg.replace(model="other"), 0.0, "Me", ck=checkpoint.Checkpoint(d))
         self.assertEqual(self.calls - before, 6)  # a different model: nothing is reused
 
     def test_clear_removes_the_file(self):
-        d = Path(tempfile.mkdtemp())
+        d = Meeting(tempfile.mkdtemp())
         ck = checkpoint.Checkpoint(d)
         ck.update("Me", "x", 1, [], {})
         ck.save()
-        self.assertTrue((d / checkpoint.PARTIAL).exists())
+        self.assertTrue(d.partial_file.exists())
         checkpoint.clear_checkpoint(d)
-        self.assertFalse((d / checkpoint.PARTIAL).exists())
+        self.assertFalse(d.partial_file.exists())
 
 
 class Speakers(unittest.TestCase):
@@ -97,11 +97,11 @@ class Speakers(unittest.TestCase):
 
     def fake_diarize(self, behaviour):
         mod = SimpleNamespace(available=lambda: True, diarize=behaviour)
-        import mt.transcription as package
+        import meeting_transcriber.transcription as package
 
-        sys.modules["mt.transcription.diarize"] = mod
+        sys.modules["meeting_transcriber.transcription.diarize"] = mod
         package.diarize = mod
-        self.addCleanup(lambda: (sys.modules.pop("mt.transcription.diarize", None), setattr(package, "diarize", None)))
+        self.addCleanup(lambda: (sys.modules.pop("meeting_transcriber.transcription.diarize", None), setattr(package, "diarize", None)))
 
     def test_stopped_goes_on_up(self):
         def stop(*a, **k):
@@ -110,7 +110,7 @@ class Speakers(unittest.TestCase):
         self.fake_diarize(stop)
         notes = []
         with self.assertRaises(control.Stopped):
-            meeting.tell_speakers_apart([{"start": 0, "end": 1, "text": "x", "speaker": "Others"}], np.zeros(10), 0.0, "Others", {}, lambda m: None, notes)
+            transcribe.tell_speakers_apart([{"start": 0, "end": 1, "text": "x", "speaker": "Others"}], np.zeros(10), 0.0, "Others", Settings(), lambda m: None, notes)
         self.assertEqual(notes, [])
 
     def test_a_real_failure_keeps_the_transcript_and_says_why(self):
@@ -120,7 +120,7 @@ class Speakers(unittest.TestCase):
         self.fake_diarize(boom)
         notes, said = [], []
         segs = [{"start": 0, "end": 1, "text": "x", "speaker": "Others"}]
-        out = meeting.tell_speakers_apart(segs, np.zeros(10), 0.0, "Others", {}, said.append, notes)
+        out = transcribe.tell_speakers_apart(segs, np.zeros(10), 0.0, "Others", Settings(), said.append, notes)
         self.assertEqual(out, segs)
         self.assertTrue(notes and "no models" in notes[0])
         self.assertTrue(said and said[0].startswith(progress.SPEAKERS_FAILED))
@@ -148,7 +148,7 @@ class ClaudeProcess(unittest.TestCase):
 
 class WhenText(unittest.TestCase):
     def test_the_recording_time_comes_from_the_folder_name(self):
-        from mt.jobs import when_text
+        from meeting_transcriber.processing.jobs import when_text
 
         self.assertEqual(when_text("2026-10-29_1620"), "Thu, Oct 29, 2026 · 16:20")
         self.assertEqual(when_text("2026-10-29_1620-2 - Weekly sync"), "Thu, Oct 29, 2026 · 16:20")  # titled, second meeting that minute
@@ -236,7 +236,7 @@ class JobStates(unittest.TestCase):
         self.assertEqual(sorted(j["id"] for j in t.snapshot()), sorted([a, d]))
 
     def test_only_finished_meetings_expire(self):
-        import mt.jobs as J
+        import meeting_transcriber.processing.jobs as J
 
         t = Tracker(("Me", "Others"))
         done, failed, cancelled, paused = (t.add(Path(f"/m/2026-10-29_10{n}0"), summarize=True) for n in range(4))
