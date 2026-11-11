@@ -71,14 +71,19 @@ record  ──▶  transcribe (on your Mac)  ──▶  summarize (Claude)  ─�
 ## Get started
 
 ### What you need
-- A Mac with **Apple Silicon** (M1 or newer) running **macOS 13 or later**.
-- **Claude Code** (the app or the command-line tool), signed in to your Claude account. It is only needed for summaries;
-  without it you can still record and transcribe. If you have the Claude desktop app, Meeting Transcriber finds the copy
-  bundled with it automatically.
-- **Apple's command line tools**, a free developer add-on from Apple that the installer needs. Open **Terminal** (press
-  ⌘ Space, type "Terminal", press Return) and run `xcode-select --install` once.
-- **Python 3.11 or newer.**
-- About **3 GB of free space** for the speech model (downloaded the first time you transcribe), plus room for your recordings.
+
+> [!IMPORTANT]
+> Do these **before** you install. The install step stops with an error if the command line tools or Python are missing.
+
+| | You need | What it is for | How to get it |
+|---|---|---|---|
+| ✅ | **A Mac with Apple Silicon** (M1 or newer), **macOS 13 or later** | the speech model only runs on Apple Silicon | (Apple menu → *About This Mac* shows your chip and macOS version) |
+| ✅ | **Apple's command line tools** | the installer builds the small system-audio helper with them | Open **Terminal** (press ⌘ Space, type "Terminal", press Return) and run `xcode-select --install`. Click *Install* in the window that appears and wait for it to finish. Needed once. |
+| ✅ | **Python 3.11 or newer** | the app itself is written in Python (the Python that ships with macOS is too old) | `brew install python` (needs [Homebrew](https://brew.sh)), or download it from [python.org](https://www.python.org/downloads/macos/) |
+| ➕ | **Claude Code** (the app or the command-line tool), signed in to your Claude account | writes the summaries. Without it you can still record and transcribe. If you have the Claude desktop app, Meeting Transcriber finds the copy bundled with it automatically. | install it from Anthropic's Claude Code page, then sign in once |
+| 💾 | **About 3 GB of free space** | the speech model, downloaded the first time you transcribe, plus room for your recordings | |
+
+✅ required · ➕ optional (only for summaries) · 💾 disk space
 
 ### Install
 Open Terminal in this project folder (in Finder, right-click the folder → *New Terminal at Folder*) and run:
