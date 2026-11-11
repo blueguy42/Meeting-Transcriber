@@ -58,12 +58,13 @@ After every meeting, the app makes a folder containing:
 - the **notes you typed** (`notes.txt`), which Claude also reads when writing the summary,
 - the **documents you added**, copied into the folder and used by Claude as background.
 
-```
-record  ──▶  transcribe (on your Mac)  ──▶  summarize (Claude)  ──▶  Word + Markdown summary
- your mic     "Me" / "Others"                reads the transcript,      folder renamed with
- + the other  with timestamps                your notes, the useful     the meeting title
- side's audio                                screenshots and the
- + screenshots, notes, documents             documents you added
+```mermaid
+flowchart LR
+    A["<b>Record</b><br/>your mic + the other side's audio<br/>+ screenshots, notes, documents"]
+    B["<b>Transcribe</b> (on your Mac)<br/>'Me' / 'Others' with timestamps"]
+    C["<b>Summarize</b> (Claude)<br/>reads the transcript, your notes,<br/>the useful screenshots and documents"]
+    D["<b>Word + Markdown summary</b><br/>folder renamed with the meeting title"]
+    A --> B --> C --> D
 ```
 
 ---
@@ -736,6 +737,46 @@ The server reads the meetings folder from your settings when it starts. Tools: `
 
 ### Project layout
 The Python code is the `meeting_transcriber` package in `src/`; paths below are inside it unless they say otherwise.
+
+How the packages depend on each other (an arrow means "uses"):
+
+```mermaid
+flowchart TD
+    entry["<b>Entry points</b><br/>__main__ (the app) · cli · integrations/mcp_server"]
+    app["<b>app</b><br/>owns what the parts share;<br/>puts the controllers together"]
+
+    subgraph ui ["What you see"]
+        bar["<b>bar</b><br/>floating bar + popups"]
+        web["<b>web</b><br/>HTML pages in the panels"]
+    end
+
+    subgraph work ["What it does"]
+        recording["<b>recording</b><br/>mic, system audio, screenshots"]
+        processing["<b>processing</b><br/>queue, pause, cancel"]
+        transcription["<b>transcription</b><br/>Whisper, speakers"]
+        summary["<b>summary</b><br/>Claude, Word export"]
+    end
+
+    subgraph base ["Used by nearly everything"]
+        meetings["<b>meetings</b><br/>Meeting: the folder layout,<br/>notes, documents, audio"]
+        settings["<b>settings</b><br/>Settings, config.toml"]
+        desktop["<b>desktop</b><br/>macOS glue, hotkeys"]
+    end
+
+    entry --> app
+    app --> ui
+    app --> work
+    bar --> web
+    processing --> transcription
+    processing --> summary
+    ui --> base
+    work --> base
+    bar -. "BarHost interface" .-> app
+```
+
+Two details to know: `bar` never imports `app`, it only knows the small `BarHost`
+interface in `bar/host.py` (the dotted line), and `transcription` and `summary` report progress and listen for "stop"
+through `processing` (`progress.py`, `control.py`).
 
 | Path | Purpose |
 |---|---|
