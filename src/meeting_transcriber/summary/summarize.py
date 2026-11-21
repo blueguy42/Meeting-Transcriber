@@ -194,7 +194,7 @@ def _run_claude(cmd, stdin, cwd, env, timeout: float = 1800):
 def summarize_meeting(meeting: Meeting, cfg: Settings, prompt_name: str | None = None) -> Path:
     claude = config.find_claude(cfg)
     if not claude:
-        raise RuntimeError("Claude Code CLI not found. Install it, or set claude_path in config.toml.")
+        raise RuntimeError("No summary: Claude Code was not found on this Mac. The transcript is saved. Install Claude Code and sign in, or set its location in Settings → Summaries, then summarize again from the processing panel.")
     prompt_name = prompt_name or cfg.default_prompt
     template = (config.prompts_dir() / f"{prompt_name}.md").read_text()
     docs = usable_documents(meeting, cfg)

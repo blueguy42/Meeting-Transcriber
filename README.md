@@ -93,7 +93,9 @@ Open Terminal in this project folder (in Finder, right-click the folder → *New
 ./scripts/build_app.sh
 ```
 
-This takes a few minutes the first time and creates **MeetingTranscriber.app** in this folder. Drag it to Applications or
+The script first checks your Mac (Apple Silicon, the command line tools, Python 3.11 or newer). If something is missing it stops
+and tells you exactly what to install; do that and run it again. Otherwise it takes a few minutes the first time and creates
+**MeetingTranscriber.app** in this folder. Drag it to Applications or
 the Dock, then double-click it. A small control bar appears on the edge of your screen.
 
 - The first transcription downloads the speech model (about 3 GB, one time only). Telling people apart downloads two small
