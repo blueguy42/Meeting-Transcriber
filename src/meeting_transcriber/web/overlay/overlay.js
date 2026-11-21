@@ -101,6 +101,7 @@
     $("tab-sys").style.display = s.sysMuted ? "block" : "none";
 
     applyHover();
+    if (document.body.classList.contains("morphing")) return;  // the window is sliding: its size is not the layout's
     const el = s.hidden ? tab : $("bar");
     const r = el.getBoundingClientRect();
     const size = Math.ceil(r.width) + "x" + Math.ceil(r.height) + (s.hidden ? "h" : "");
@@ -181,6 +182,73 @@
     el.addEventListener("pointerup", endDrag);
     el.addEventListener("pointercancel", endDrag);
   }
+
+  // Hiding and showing: the page measures how big the bar and the tab are on their own and tells Python, which moves the window
+  // in two steps (hiding: it closes up to the tab's height, then swipes into the edge; showing: the reverse) and, with every step,
+  // says how many milliseconds have passed (__morphAt). Both layouts fill the window meanwhile: the buttons gather in the middle
+  // and fade (or spread out again) and the bar's shell and the tab's shell cross-fade. STEPS must agree with Python's.
+  const STEPS = { hide: [110, 110], show: [90, 100] };
+  let morphHide = false, morphTimer = null;
+  const clamp = (x) => Math.min(Math.max(x, 0), 1);
+  const ease = (x) => 1 - Math.pow(1 - clamp(x), 3);  // ease-out, as the window's own movement
+  function natural(el) {
+    const b = document.body, was = b.classList.contains("morphing");
+    b.classList.remove("morphing"); b.classList.add("measure");
+    const r = el.getBoundingClientRect();
+    b.classList.remove("measure"); if (was) b.classList.add("morphing");
+    return [Math.ceil(r.width), Math.ceil(r.height)];
+  }
+  function paintShell(el, a) {  // the rounded dark background and its edge, a: 0 gone .. 1 solid
+    el.style.backgroundColor = "rgba(30,31,36," + a + ")";
+    el.style.borderColor = "rgba(255,255,255," + (0.14 * a) + ")";
+  }
+  function paintButtons(a) {  // the bar's buttons: a = 1 spread out, 0 gathered in the middle and gone
+    const body = $("barbody");
+    body.style.transform = "scale(" + (0.45 + 0.55 * a) + ")";
+    body.style.opacity = a;
+  }
+  function paintAt(hide, t) {
+    const [d1, d2] = STEPS[hide ? "hide" : "show"];
+    if (hide) {
+      const p1 = ease(t / d1), p2 = ease((t - d1) / d2);
+      paintButtons(1 - p1);
+      $("tabbody").style.opacity = ease((t - 40) / (d1 - 40));
+      paintShell($("bar"), 1 - p2); paintShell($("tab"), p2);
+    } else {
+      const p1 = ease(t / d1), p2 = ease((t - d1 - 20) / (d2 - 20));
+      paintShell($("bar"), p1); paintShell($("tab"), 1 - p1);
+      $("tabbody").style.opacity = 1 - ease((t - d1) / 60);
+      paintButtons(p2);
+    }
+  }
+  window.__morph = function (hide) {
+    const bar = $("bar");
+    state.hidden = hide; morphHide = hide;
+    const sizes = { bar: natural(bar), tab: natural($("tab")) };
+    clearTimeout(morphTimer);
+    paintAt(hide, 0);
+    document.body.classList.add("morphing");
+    const [d1, d2] = STEPS[hide ? "hide" : "show"];
+    morphTimer = setTimeout(window.__morphEnd, d1 + d2 + 300);  // (Python ends it; this is only for a window that stopped moving)
+    post({ op: "morph", bar: sizes.bar, tab: sizes.tab });
+  };
+  window.__morphAt = function (t) { if (document.body.classList.contains("morphing")) paintAt(morphHide, t); };
+  window.__morphEnd = function () {
+    clearTimeout(morphTimer);
+    const b = document.body;
+    if (!b.classList.contains("morphing")) return;
+    b.classList.remove("morphing");
+    for (const el of [$("bar"), $("tab"), $("barbody"), $("tabbody")]) { el.style.opacity = ""; el.style.transform = ""; el.style.backgroundColor = ""; el.style.borderColor = ""; }
+    lastSize = "";
+    window.render(state);
+  };
+  // while it moves the buttons do nothing, except that the tab (or the hide button) turns it around
+  document.addEventListener("click", (e) => {
+    if (!document.body.classList.contains("morphing")) return;
+    e.stopPropagation(); e.preventDefault();
+    if (e.target.closest("#tab, #hide")) post({ op: state.hidden ? "unhide" : "hide" });
+  }, true);
+  document.addEventListener("pointerdown", (e) => { if (document.body.classList.contains("morphing")) e.stopPropagation(); }, true);
 
   // a clicked button must not stay focused (it would keep looking selected until you click elsewhere)
   document.addEventListener("click", (e) => { const b = e.target.closest("button"); if (b) b.blur(); }, true);

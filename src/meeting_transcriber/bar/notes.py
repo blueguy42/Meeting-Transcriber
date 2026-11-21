@@ -34,7 +34,7 @@ class NotesPopup(Popup):
         """Show the notes panel beside the notes button and give it the keyboard."""
         bar = self.bar
         if bar.hidden:  # the bar is a slim tab: bring the bar back first, the panel sits beside its button
-            bar.set_hidden(False)
+            bar.set_hidden(False, animate=False)
         item = next((i for i in bar.items if i[0] == "notes"), None)
         if item is None:
             return

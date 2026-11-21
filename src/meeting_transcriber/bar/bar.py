@@ -2,13 +2,14 @@
 
 import json
 import logging
+import time
 from pathlib import Path
 
-from AppKit import NSCursor, NSEvent, NSScreen
+from AppKit import NSCursor, NSEvent, NSScreen, NSWorkspace
 from Foundation import NSMakePoint, NSMakeRect, NSRunLoop, NSRunLoopCommonModes, NSTimer
 
 from ..settings import config
-from .constants import GAP, MARGIN, MOVE_MASK, OPS, POPUP_PAD, STATUS_LEVEL
+from .constants import GAP, HIDE_STEPS, MARGIN, MOVE_MASK, OPS, POPUP_PAD, SHOW_STEPS, STATUS_LEVEL
 from .docs import DocsPopup
 from .menu import MenuPopup
 from .notes import NotesPopup
@@ -38,6 +39,7 @@ class Bar:
         self._size = (64, 330)
         self._bar_h = 328.0  # the full bar's height: the hidden tab sits at its vertical middle
         self._origin0 = None  # where the bar was when a drag started (None: not dragging)
+        self._morph = None  # the timer of a hide / show animation that is running (None: none)
         self.state = {}  # what the app last told the bar
         self.items = []  # the toolbar buttons (id, x, y, w, h) in the bar page's coordinates
         self.hover = None  # the button the pointer is on
@@ -141,19 +143,81 @@ class Bar:
         self.surface.show()
 
     def hide(self) -> None:
+        self._stop_morph()
         self.close_popups()
         self.ctl.hide_now()  # (no sliding when the whole bar goes)
         self.toasts.hide()
         self.ghost.hide()
         self.surface.hide()
 
-    def set_hidden(self, hidden: bool) -> None:
-        """Collapse the bar to a slim tab on its screen edge, or bring it back."""
+    def set_hidden(self, hidden: bool, animate: bool = True) -> None:
+        """Collapse the bar to a slim tab on its screen edge, or bring it back. The bar slides into the edge (and out of it)
+        unless it is not on screen, or macOS has Reduce Motion on, or the caller needs the final size at once."""
+        if hidden == self.hidden and self._morph is None:
+            return
         self.hidden = hidden
         self.close_popups()
         self.toasts.hide()
         self.save()
+        if animate and self.surface.visible and not self.dragging and not self._reduce_motion():
+            self.items, self.hover = [], None  # the buttons are not reachable while it moves
+            self.surface.eval(f"window.__morph && window.__morph({js_literal(hidden)})")
+        else:
+            self._stop_morph()
+            self.surface.eval("window.__morphEnd && window.__morphEnd()")
         self.update(self.state)
+
+    @staticmethod
+    def _reduce_motion() -> bool:
+        try:
+            return bool(NSWorkspace.sharedWorkspace().accessibilityDisplayShouldReduceMotion())
+        except Exception:
+            return False
+
+    def _on_morph(self, msg) -> None:
+        """The page has measured the bar and the tab: slide the panel from where it is to the size and place it will end at."""
+        if not self.surface.visible:
+            return
+        w, h = msg["tab" if self.hidden else "bar"]
+        self._size = (max(24.0, min(float(w), 400.0)), max(40.0, min(float(h), 900.0)))
+        if not self.hidden:
+            self._bar_h = self._size[1]
+        self._stop_morph()
+        start, end = self.surface.panel.frame(), self._target_frame()
+        # Two steps. Hiding: close up to the tab's height right where the bar is, then swipe into the edge. Showing: swipe out
+        # to the bar's place at the tab's height, then open up.
+        if self.hidden:
+            mid = NSMakeRect(start.origin.x, end.origin.y, start.size.width, end.size.height)
+        else:
+            mid = NSMakeRect(end.origin.x, start.origin.y, end.size.width, start.size.height)
+        first, second = HIDE_STEPS if self.hidden else SHOW_STEPS
+        t0 = time.monotonic()
+
+        def blend(a, b, e):
+            return NSMakeRect(*(p + (q - p) * e for p, q in ((a.origin.x, b.origin.x), (a.origin.y, b.origin.y), (a.size.width, b.size.width), (a.size.height, b.size.height))))
+
+        def step(timer):
+            t = time.monotonic() - t0
+            if t < first:
+                f = blend(start, mid, 1 - (1 - t / first) ** 3)  # ease-out: quick at first, a soft landing
+            else:
+                f = blend(mid, end, 1 - (1 - min((t - first) / second, 1.0)) ** 3)
+            self.surface.panel.setFrame_display_(f, True)
+            self.surface.panel.invalidateShadow()
+            if t >= first + second:
+                self._stop_morph()
+                self._place()
+                self.surface.eval("window.__morphEnd && window.__morphEnd()")
+            else:
+                self.surface.eval(f"window.__morphAt && window.__morphAt({t * 1000:.0f})")  # the page fades in step with the window
+
+        self._morph = NSTimer.timerWithTimeInterval_repeats_block_(1 / 60, True, step)
+        NSRunLoop.mainRunLoop().addTimer_forMode_(self._morph, NSRunLoopCommonModes)
+
+    def _stop_morph(self) -> None:
+        if self._morph is not None:
+            self._morph.invalidate()
+            self._morph = None
 
     def update(self, state: dict) -> None:
         """Push the app's state to the bar (cheap; called every second and after every action)."""
@@ -226,8 +290,8 @@ class Bar:
     def _screen(self):
         return find_screen(self.screen_id) if self.screen_id is not None else NSScreen.mainScreen()
 
-    def _place(self) -> None:
-        """Put the panel on its edge: x from the side, y from the saved distance below the top (clamped to the screen)."""
+    def _target_frame(self):
+        """Where the panel belongs: x from the side, y from the saved distance below the top (clamped to the screen)."""
         w, h = self._size
         v = self._screen().visibleFrame()
         if self.top is None:
@@ -236,7 +300,13 @@ class Bar:
         x = v.origin.x + v.size.width - w - inset if self.side == "right" else v.origin.x + inset
         top = self.top + ((self._bar_h - h) / 2 if self.hidden else 0)  # a hidden tab keeps the bar's middle
         top = min(max(top, 0), max(v.size.height - h, 0))
-        self.surface.panel.setFrame_display_(NSMakeRect(x, v.origin.y + v.size.height - top - h, w, h), True)
+        return NSMakeRect(x, v.origin.y + v.size.height - top - h, w, h)
+
+    def _place(self) -> None:
+        """Put the panel on its edge (while it slides, the slide does this)."""
+        if self._morph is not None:
+            return
+        self.surface.panel.setFrame_display_(self._target_frame(), True)
         self.surface.panel.invalidateShadow()
 
     def _resize(self, w: float, h: float) -> None:
@@ -295,6 +365,8 @@ class Bar:
             self.update(self.state)
         elif op == "size":
             self._resize(float(msg["w"]), float(msg["h"]))
+        elif op == "morph":
+            self._on_morph(msg)
         elif op == "drag":
             self._drag(msg)
         elif op == "hit":

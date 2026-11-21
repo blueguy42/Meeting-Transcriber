@@ -25,7 +25,7 @@ class DocsPopup(Popup):
     def open(self) -> None:
         bar = self.bar
         if bar.hidden:
-            bar.set_hidden(False)
+            bar.set_hidden(False, animate=False)
         item = next((i for i in bar.items if i[0] == "doclist"), None)
         if item is None:
             return

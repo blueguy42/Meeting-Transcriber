@@ -199,6 +199,15 @@ state. Click the tab to bring the bar back, or drag it elsewhere.
   <img src="docs/screenshots/hidden.png" alt="The collapsed tab on the left and right edges" width="600">
 </p>
 
+The bar does not just vanish. It first closes up around its middle, with the buttons gathering there, and then swipes into
+the screen edge as the tab (together about a fifth of a second). Clicking the tab does the reverse: the tab swipes out,
+then the bar opens up and the buttons spread out. If you click again while it is moving, it turns around. If macOS has
+**Reduce motion** turned on (System Settings → Accessibility → Display), the change is instant.
+
+<p align="center">
+  <img src="docs/screenshots/hidden-animation.png" alt="Hiding in five steps: the bar closes up, the buttons gather in the middle, it swipes into the edge as the tab; showing is the reverse; plus the rules for clicks, popups and Reduce motion" width="900">
+</p>
+
 **Private by design.** The bar never takes the keyboard from the app you are in (so it never interrupts a call), and by
 default it is kept out of your screenshots and screen shares. See [Privacy and permissions](#privacy-and-permissions).
 
@@ -582,6 +591,11 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   Tooltips float one level above popups, and the device-changed toast (`show_toast`, `meeting_transcriber/recording/device_toast.py` decides its wording) one above those.
   The recorder calls `on_device_change(track, device)` from its watcher threads; the app moves it to the main thread. The bar's position, hidden state and the notes panel size are kept in `overlay.json`
   next to `config.toml`.
+- Hiding and showing the bar is an animation of the panel itself, in two steps (`Bar.set_hidden` → the page measures the bar and the tab and sends `morph` → `_on_morph`
+  steps the window's frame at 60 Hz: hiding closes up to the tab's height (110 ms) then swipes into the edge (110 ms), showing swipes out (90 ms) then opens up (100 ms), each ease-out;
+  `HIDE_STEPS` / `SHOW_STEPS` and `STEPS` in `overlay.js` must agree). With every step Python tells the page the elapsed time (`__morphAt`), and `overlay.js` paints the buttons gathering and fading,
+  the tab's contents and the two shells cross-fading (`body.morphing`: both layouts fill the window). Driving the fades from the same step keeps them in sync with the window and does not depend on CSS
+  transitions. The buttons do nothing while it moves and `bar.items` is empty; `set_hidden(..., animate=False)` is for callers that need the final size at once (the notes and documents panels), and Reduce Motion skips it.
 - Resizing a web view flickers, so the processing panel's window is always as tall as the toolbar and opening or closing a tab only changes what is drawn
   inside it; the window ignores the mouse except over the card (like the More menu), so clicks reach the app behind.
 - The pointing hand over buttons is set by the app itself (`NSCursor.set()` from a global mouse monitor and a 60 Hz poll). macOS ignores that

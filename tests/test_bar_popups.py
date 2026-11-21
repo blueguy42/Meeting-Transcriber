@@ -115,6 +115,71 @@ class Popups(unittest.TestCase):
         bar.set_hidden(False)
         self.assertFalse(bar.hidden)
 
+    def sizes_while(self, seconds, step=0.015):
+        seen, end = [], seconds
+        while end > 0:
+            pump(step)
+            end -= step
+            f = self.bar.frame()
+            seen.append((round(f.size.width), round(f.size.height)))
+        return seen
+
+    def widths_while(self, seconds, step=0.02):
+        return [w for w, _h in self.sizes_while(seconds, step)]
+
+    def test_hiding_closes_up_then_swipes_into_the_edge_and_showing_does_the_reverse(self):
+        bar = self.bar
+        bar._reduce_motion = lambda: False
+        edge = bar.visible_frame().origin.x + bar.visible_frame().size.width
+        full_w, full_h = round(bar.frame().size.width), round(bar.frame().size.height)
+        bar.set_hidden(True)
+        seen = self.sizes_while(0.9)
+        tab_w, tab_h = seen[-1]
+        self.assertEqual(tab_w, 42)
+        self.assertLess(tab_h, full_h)
+        self.assertTrue(any(w == full_w and tab_h < h < full_h for w, h in seen), seen)  # first it closes up, still as wide as the bar
+        self.assertTrue(any(tab_w < w < full_w and h == tab_h for w, h in seen), seen)  # then it narrows to the tab, at the tab's height
+        self.assertEqual([h for _w, h in seen], sorted((h for _w, h in seen), reverse=True))  # the height only ever goes down
+        self.assertAlmostEqual(bar.frame().origin.x + bar.frame().size.width, edge, delta=1)  # flush with the edge
+        self.assertIsNone(bar._morph)
+        bar.set_hidden(False)
+        seen = self.sizes_while(0.9)
+        self.assertEqual(seen[-1], (full_w, full_h))
+        self.assertTrue(any(tab_w < w < full_w and h == tab_h for w, h in seen), seen)  # first it widens at the tab's height
+        self.assertTrue(any(w == full_w and tab_h < h < full_h for w, h in seen), seen)  # then it opens up
+        self.assertEqual([h for _w, h in seen], sorted(h for _w, h in seen))
+        self.assertAlmostEqual(bar.frame().origin.x + bar.frame().size.width, edge - 24, delta=1)  # back at its margin
+
+    def test_with_reduce_motion_the_bar_jumps(self):
+        bar = self.bar
+        bar._reduce_motion = lambda: True
+        bar.set_hidden(True)
+        seen = self.widths_while(0.5)
+        self.assertEqual(seen[-1], 42)
+        self.assertLessEqual(set(seen), {64, 42})  # the bar or the tab: nothing in between
+        self.assertIsNone(bar._morph)
+
+    def test_clicking_again_while_it_slides_turns_it_around(self):
+        bar = self.bar
+        bar._reduce_motion = lambda: False
+        full = round(bar.frame().size.width)
+        bar.set_hidden(True)
+        pump(0.1)
+        bar.set_hidden(False)
+        seen = self.widths_while(0.9)
+        self.assertEqual(seen[-1], full)
+        self.assertFalse(bar.hidden)
+
+    def test_showing_without_animation_is_immediate_for_the_panels_that_need_the_bar(self):
+        bar = self.bar
+        bar._reduce_motion = lambda: False
+        bar.set_hidden(True, animate=False)
+        pump(0.3)
+        bar.set_hidden(False, animate=False)
+        pump(0.3)
+        self.assertEqual(round(bar.frame().size.width), 64)
+        self.assertIsNone(bar._morph)
+
 
 if __name__ == "__main__":
     unittest.main()
