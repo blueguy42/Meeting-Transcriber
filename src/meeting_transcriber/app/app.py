@@ -21,6 +21,7 @@ from ..settings.model import Settings
 from .bar_presenter import BarPresenter
 from .permission_controller import PermissionController
 from .processing_controller import ProcessingController
+from .speaker_controller import SpeakerController
 from .recording_controller import RecordingController
 
 log = logging.getLogger(__name__)
@@ -47,6 +48,7 @@ class App:
         self.permissions = PermissionController(self)
         self.recording = RecordingController(self)
         self.processing = ProcessingController(self)
+        self.speakers = SpeakerController(self)
         self.presenter = BarPresenter(self)
         self.rec.on_device_change = lambda track, device: on_main(self.presenter.device_toast, track, device)  # called from the recorder's watcher threads
         # a switch while recording is noticed by the recorder; this one covers the rest of the time

@@ -32,7 +32,7 @@
     const btn = (act, tip, icon, cls) => ({ act, tip, icon, cls: cls || "" });
     if (j.state === "queued") return { si: '<span class="ring"></span>', line: j.stopping ? "Cancelling…" : "Waiting for the meeting before it", cls: "", btns: j.stopping ? [] : [btn("cancel", "Cancel", I_X, "red")] };
     if (j.state === "paused") return { si: PAUSE_S, line: "Paused at " + (cur ? cur.label : "…"), cls: "amb", btns: [btn("resume", "Resume", I_PLAY, "amb"), btn("cancel", "Cancel", I_X, "red")] };
-    if (j.state === "done") return { si: CHECK, line: "Done" + (j.finished ? " · " + hhmm(j.finished) : ""), cls: "grn", btns: [btn("summary", "Open summary", I_DOC), btn("folder", "Show folder", I_FOLDER), btn("dismiss", "Dismiss", I_X)] };
+    if (j.state === "done") return { si: CHECK, line: "Done" + (j.finished ? " · " + hhmm(j.finished) : ""), cls: "grn", btns: [btn("summary", j.mode === "name" ? "Open transcript" : "Open summary", I_DOC), btn("folder", "Show folder", I_FOLDER), btn("dismiss", "Dismiss", I_X)] };
     if (j.state === "failed") return { si: S_FAIL, line: "Failed · " + (j.error || "see the folder"), cls: "red", btns: [btn("again", "Process again", I_AGAIN), btn("folder", "Show folder", I_FOLDER), btn("dismiss", "Dismiss", I_X)] };
     if (j.state === "cancelled") return { si: X_S, line: "Cancelled · the recording is kept", cls: "red", btns: [btn("again", "Process again", I_AGAIN), btn("dismiss", "Dismiss", I_X)] };
     let line = cur ? cur.label : "Working";  // running
@@ -40,6 +40,41 @@
     if (kid) line += " · " + kid.sub; else if (cur && cur.sub) line += " · " + cur.sub;
     if (j.stopping) return { si: '<span class="spin"></span>', line: j.stopping === "cancel" ? "Stopping…" : "Pausing…", cls: "", btns: [] };
     return { si: '<span class="spin"></span>', line, cls: "", btns: [btn("pause", "Pause", I_PAUSE), btn("cancel", "Cancel", I_X, "red")] };
+  }
+
+  // ---- a finished meeting's speakers: who the other people are, to fix a name or fill a blank (see meetings/speakers.py)
+  const spOpen = new Set();
+  const P_PLAY = '<svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M7 4l13 8-13 8z"/></svg>';
+  const P_WAVE = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" aria-hidden="true"><path d="M6 10v4M10 6v12M14 9v6M18 11v2"/></svg>';
+  function renderSpeakers(j) {
+    const list = j.speakers || [];
+    if (!list.length) return "";
+    const open = spOpen.has(j.id), named = list.filter((r) => r.name).length;
+    const head = '<div class="sp sph" tabindex="0" role="button" aria-expanded="' + open + '" data-spt="' + j.id + '"><span class="chev">' + (open ? CHEV_O : CHEV_C) + "</span><b>Speakers</b><span class=\"r\">" + list.length + (list.length === 1 ? " other" : " others") + " · " + named + " named</span></div>";
+    if (!open) return '<div class="spw">' + head + "</div>";
+    const rows = list.map((r) => {
+      const label = esc(r.label), sample = r.samples && r.samples.length ? r.samples[(r.sample || 0) % r.samples.length] : null;
+      const chip = r.name ? '<span class="sp nm ' + (r.by === "user" ? "usr" : "auto") + '" data-act="rename" data-job="' + j.id + '" data-arg="' + label + '" data-tip="' + esc(r.by === "user" ? "Set by you. Click to change." : r.evidence ? "From the transcript: “" + r.evidence + "” (" + (r.at || "") + "). Click to change." : "Click to change.") + '" role="button">' + esc(r.name) + "</span>"
+        : '<span class="sp nm ask" data-act="rename" data-job="' + j.id + '" data-arg="' + label + '" data-tip="Click to give this person a name" role="button">Who is this?</span>';
+      const play = sample ? '<span class="sp pl' + (r.playing ? " on" : "") + (j.canPlay ? "" : " off") + '" data-act="play" data-job="' + j.id + '" data-arg="' + label + '" data-tip="' + esc(!j.canPlay ? "The recording was deleted" : r.playing ? "Stop" : "Hear this person") + '" role="button" aria-label="Play a sample of ' + label + '">' + (r.playing ? P_WAVE : P_PLAY) + "</span>" : "";
+      const line = sample && (!r.name || r.playing || r.showSample) ? '<div class="smp">“' + esc(sample.text) + "” <small>· " + esc(sample.at) + (r.samples.length > 1 ? " · sample " + (((r.sample || 0) % r.samples.length) + 1) + " of " + r.samples.length + " · " : "") + "</small>" + (r.samples.length > 1 ? '<span class="sp nx" data-act="nextsample" data-job="' + j.id + '" data-arg="' + label + '" role="button">Next sample</span>' : "") + "</div>" : "";
+      return '<div class="srow"><span class="sl">' + label + '</span><span class="ar">→</span>' + chip + play + "</div>" + line;
+    }).join("");
+    let extra = "";
+    if (j.speakersStale) extra += '<div class="snote">The summary still uses the old names.</div><div class="btns"><button class="b main" data-act="resummarize" data-job="' + j.id + '">Update summary</button></div>';
+    else if (!j.speakersChecked && j.canName) extra += '<div class="btns"><button class="b" data-act="namespeakers" data-job="' + j.id + '">Name speakers</button></div><div class="snote">Claude reads the transcript and names the people it finds proof for.</div>';
+    return '<div class="spw">' + head + rows + extra + "</div>";
+  }
+
+  function toggleSpeakers(id) {
+    spOpen.has(id) ? spOpen.delete(id) : spOpen.add(id);
+    const scroll = wrap.querySelector(".rows"), keep = scroll ? scroll.scrollTop : 0;
+    hov = null;
+    wrap.innerHTML = renderStatus(spec);
+    const again = wrap.querySelector(".rows");
+    if (again) again.scrollTop = keep;
+    lastJson = "";
+    report();
   }
 
   function openOf(jobs) {
@@ -58,7 +93,7 @@
       let body = "";
       if (isOpen) {
         if (j.state === "failed") body = '<div class="err">' + esc(j.error || "Processing failed.") + "</div>";
-        else body = renderSteps(j) + (j.state === "paused" && j.note ? '<div class="snote">' + esc(j.note) + "</div>" : "");
+        else body = renderSteps(j) + (j.state === "paused" && j.note ? '<div class="snote">' + esc(j.note) + "</div>" : "") + (j.state === "done" ? renderSpeakers(j) : "");
       }
       return '<div class="tb2" data-job="' + j.id + '">' + head + (body ? '<div class="tbody">' + body + "</div>" : "") + "</div>";
     }).join("");

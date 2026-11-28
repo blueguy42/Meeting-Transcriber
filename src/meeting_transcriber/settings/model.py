@@ -21,6 +21,7 @@ class Settings:
     # Tell the other people in a meeting apart ("Others 1", "Others 2"...). 0 = work out how many; or a number.
     diarize: bool = True
     diarize_speakers: int = 0
+    name_speakers: bool = True  # Claude names the other speakers from the transcript, when it can prove a name
     my_label: str = "Me"
     others_label: str = "Others"
     # Show the floating bar in screenshots and screen shares (off: it is kept out of both).

@@ -102,7 +102,8 @@ class StatusPopup(Popup):
         elif op == "status_close":
             self.close()
             self.bar.host.overlay_status_action("close", None)
-        elif op in ("status_summary", "status_folder", "status_record", "status_pause", "status_resume", "status_cancel", "status_again", "status_dismiss"):
-            self.bar.host.overlay_status_action(op[len("status_"):], msg.get("id"))
+        elif op in ("status_summary", "status_folder", "status_record", "status_pause", "status_resume", "status_cancel", "status_again", "status_dismiss",
+                    "status_play", "status_nextsample", "status_rename", "status_resummarize", "status_namespeakers"):
+            self.bar.host.overlay_status_action(op[len("status_"):], msg.get("id"), msg.get("arg"))
         else:
             super().on_message(msg)

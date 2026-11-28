@@ -20,11 +20,12 @@
     } else {
       lastJson = "";
     }
-    if (s.fresh || s.kind !== "menu") subOpen = false;
+    if (s.fresh || s.kind !== "menu") subOpen = 0;
     spec = { ...s, fresh: false };
     hov = null;
     const scroll = wrap.querySelector(".rows"), keep = scroll ? scroll.scrollTop : 0;
     wrap.innerHTML = s.kind === "tip" ? renderTip(s) : s.kind === "toast" ? renderToast(s) : s.kind === "ctl" ? renderCtl(s) : s.kind === "menu" ? renderMenu(s) : s.kind === "docs" ? renderDocs(s) : renderStatus(s);
+    if (s.kind === "menu") alignSubs();
     const again = wrap.querySelector(".rows");
     if (again && keep) again.scrollTop = keep;  // the list is redrawn every second while files are being read: stay where you were
     report();
@@ -66,7 +67,7 @@
       });
     }
     const rows = [];
-    wrap.querySelectorAll(".row, .b, .x, .tr, .cb, .th, .ib i").forEach((el, i) => {
+    wrap.querySelectorAll(".row, .b, .x, .tr, .cb, .th, .sp, .ib i").forEach((el, i) => {
       el.dataset.hi = i;
       const card = el.closest(".card");
       if (!card || getComputedStyle(card).visibility === "hidden") return;
@@ -94,26 +95,27 @@
     hov = i >= 0 ? wrap.querySelector('[data-hi="' + i + '"]') : null;
     if (hov) {
       hov.classList.add("hov");
-      if (spec && spec.kind === "menu" && !hov.closest(".sub")) setSub(!!hov.dataset.sub);
+      if (spec && spec.kind === "menu" && !hov.closest(".sub")) setSub(hov.dataset.sub ? Number(hov.dataset.sub) : 0);
     }
   };
 
   wrap.addEventListener("click", (e) => {
-    const row = e.target.closest(".row, .b, .x, .tr, .cb, .th, .ib i");
+    const row = e.target.closest(".row, .b, .x, .tr, .cb, .th, .sp, .ib i");
     if (!row || !spec) return;
     if (spec.kind === "status" && row.dataset.tab) { toggleTab(Number(row.dataset.tab)); return; }
+    if (spec.kind === "status" && row.dataset.spt) { toggleSpeakers(Number(row.dataset.spt)); return; }
     if (spec.kind === "ctl") {
       const clip = wrap.querySelector(".ctlclip");  // the buttons only respond once the bar has fully slid out (and not while it slides back)
       if (row.dataset.act && clip && clip.classList.contains("ready") && !clip.classList.contains("out")) post({ op: "ctl_" + row.dataset.act });
       return;
     }
     if (spec.kind === "docs") { if (row.dataset.act) post({ op: row.dataset.act, id: row.dataset.id || null }); return; }
-    if (row.dataset.sub) { setSub(true); return; }
+    if (row.dataset.sub) { setSub(Number(row.dataset.sub)); return; }
     if (spec.kind === "menu" && row.dataset.id) post({ op: "menu_click", id: row.dataset.id });
-    else if (row.dataset.act) post({ op: "status_" + row.dataset.act, id: row.dataset.job ? Number(row.dataset.job) : null });
+    else if (row.dataset.act) post({ op: "status_" + row.dataset.act, id: row.dataset.job ? Number(row.dataset.job) : null, arg: row.dataset.arg || null });
   });
   wrap.addEventListener("keydown", (e) => {
-    if ((e.key === "Enter" || e.key === " ") && (e.target.classList.contains("row") || e.target.classList.contains("th"))) { e.preventDefault(); e.target.click(); }
+    if ((e.key === "Enter" || e.key === " ") && (e.target.classList.contains("row") || e.target.classList.contains("th") || e.target.classList.contains("sp"))) { e.preventDefault(); e.target.click(); }
   });
 
   document.addEventListener("click", (e) => { const b = e.target.closest("button, .row"); if (b) b.blur(); }, true);

@@ -130,8 +130,11 @@ class BarPresenter:
         warn = [{"id": "perm", "label": label}, {"divider": True}] if self.app.permissions.missing else []
         return warn + [
             {"id": "style", "label": "Summary style", "sub": styles},
-            {"id": "transcribe", "label": "Transcribe a meeting…"},
-            {"id": "summarize", "label": "Summarize a meeting…"},
+            {"id": "process", "label": "Process a meeting", "sub": [  # the steps in their order
+                {"id": "transcribe", "label": "Transcribe…"},
+                {"id": "speakers", "label": "Name speakers…"},
+                {"id": "summarize", "label": "Summarize…"},
+            ]},
             {"divider": True},
             {"id": "settings", "label": "Settings…", "hint": "⌘,"},
             {"id": "folder", "label": "Open meetings folder"},
@@ -146,15 +149,18 @@ class BarPresenter:
             self.app.processing.summarize_chosen()
         elif item_id == "transcribe":
             self.app.processing.transcribe_chosen()
+        elif item_id == "speakers":
+            self.app.processing.name_chosen()
         elif item_id == "settings":
             self.app.open_settings()
         elif item_id == "folder":
             subprocess.run(["open", str(self.app.cfg.meetings_dir)])
 
     def overlay_status(self):
-        return {"jobs": [j for j in self.jobs.snapshot()], "canRecord": not self.rec.recording}
+        jobs = [{**j, **self.app.speakers.info(j)} if j["state"] == "done" else j for j in self.jobs.snapshot()]  # (a finished meeting also lists its speakers)
+        return {"jobs": jobs, "canRecord": not self.rec.recording}
 
-    def overlay_status_action(self, act, job_id):
+    def overlay_status_action(self, act, job_id, arg=None):
         job = next((j for j in self.jobs.snapshot() if j["id"] == job_id), None)
         if act == "summary" and job and job["out"]:
             subprocess.run(["open", job["out"]])  # (the tab stays: only Dismiss, or ten minutes after finishing, removes it)
@@ -170,6 +176,8 @@ class BarPresenter:
             self.app.processing.process_again(job)
         elif act == "dismiss" and job:
             self.jobs.dismiss(job_id)
+        elif act in ("play", "nextsample", "rename", "resummarize", "namespeakers") and job and job["state"] == "done":
+            self.app.speakers.act(act, job, arg)
         elif act == "record" and not self.rec.recording:
             self.app.recording.toggle()
         elif act == "close":

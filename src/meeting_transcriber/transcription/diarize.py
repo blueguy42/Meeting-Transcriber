@@ -2,8 +2,9 @@
 
 sherpa-onnx (pyannote segmentation + 3D-Speaker voice embeddings, ONNX on the CPU) cuts the audio into
 speech turns and groups them by voice, deliberately too fine. Each group is then averaged into one voiceprint,
-and groups whose voiceprints are close are merged. Merging whole voiceprints (instead of one threshold on
-individual turns) holds up from a 2-minute call to a 1-hour one, where a fixed threshold does not.
+and the closest groups are merged until the widest gap between "the same person" and "another person" distances is reached, so the number of
+people comes from the meeting itself (see automatic_distance). Merging whole voiceprints (instead of one threshold on individual turns)
+holds up from a 2-minute call to a 1-hour one.
 """
 
 import os
@@ -25,7 +26,9 @@ SEG_FILE, EMB_FILE = "pyannote-segmentation-3-0.onnx", "3dspeaker-campplus-zh-en
 EMB_BYTES = 28_281_164  # a truncated download must not be used as a model
 
 FINE_THRESHOLD = 0.5  # sherpa's own clustering, set low so it over-splits instead of merging two people
-MERGE_DISTANCE = 0.35  # cosine distance between voiceprints: same voice merges below ~0.2, different voices are above ~0.45
+MERGE_DISTANCE = 0.30  # used when a meeting shows no clear gap (see automatic_distance): the same voice merges below ~0.2, two voices are usually above ~0.3
+SAME_VOICE, FARTHEST = 0.15, 0.75  # a typical distance within one person's voice, and the largest distance between two voices
+HIGHEST_MERGE, LOWEST_SPLIT, MIN_GAP = 0.30, 0.25, 0.05  # limits for the automatic cut
 PER_GROUP_SECONDS = 40.0  # speech used to build one group's voiceprint
 MIN_TURN_SECONDS, MAX_TURN_SECONDS = 1.0, 8.0
 
@@ -108,12 +111,13 @@ def _voiceprints(audio: np.ndarray, turns: list, extractor) -> dict:
     return out
 
 
-def merge_groups(prints: dict, speakers: int = 0, max_distance: float = MERGE_DISTANCE) -> dict:
-    """Merge groups with close voiceprints. Returns {group: speaker}, speaker 0 = who talks the most.
-    With `speakers` > 0, merge until that many are left instead of using the distance."""
-    groups = {g: {"members": [g], "vec": v.copy(), "w": w} for g, (v, w) in prints.items()}
+def _merge_steps(prints: dict) -> list[tuple[int, int, float, bool]]:
+    """Merge the voice groups all the way down to one, closest voiceprints first, and say what was done: [(group, into group, distance, tiny)].
+    A group with too little speech to be a person of its own ("tiny") is absorbed first, whatever the distance."""
+    groups = {g: {"vec": v.copy(), "w": w} for g, (v, w) in prints.items()}
     total = sum(g["w"] for g in groups.values())
-    tiny_s = max(3.0, min(20.0, 0.03 * total))  # too little speech to be a person of its own: absorbed first
+    tiny_s = max(3.0, min(20.0, 0.03 * total))
+    steps = []
     while len(groups) > 1:
         ids = list(groups)
         tiny = [i for i in ids if groups[i]["w"] < tiny_s]
@@ -127,17 +131,48 @@ def merge_groups(prints: dict, speakers: int = 0, max_distance: float = MERGE_DI
                     if d < best[0]:
                         best = (d, i, j)
         d, i, j = best
-        if not tiny:
-            if speakers and len(groups) <= speakers:
-                break
-            if not speakers and d > max_distance:
-                break
-        groups[j]["members"] += groups[i]["members"]
+        steps.append((i, j, d, bool(tiny)))
         groups[j]["vec"] = groups[j]["vec"] + groups[i]["vec"]
         groups[j]["w"] += groups[i]["w"]
         del groups[i]
-    ranked = sorted(groups.values(), key=lambda g: -g["w"])
-    return {m: n for n, g in enumerate(ranked) for m in g["members"]}
+    return steps
+
+
+def automatic_distance(distances: list[float]) -> float:
+    """Where to stop merging, from how far apart the merges were. Merges of one person's voice happen at small distances, merges of two
+    different people at larger ones, with a gap between: stop in the middle of the widest gap. The gap has to start below
+    HIGHEST_MERGE (nothing far apart is joined) and end above LOWEST_SPLIT (nothing very close is kept apart); a meeting with no clear gap gets
+    MERGE_DISTANCE. With one person the first merges already are the last, so the 'gap' runs up to the largest possible distance."""
+    ds = sorted(distances)
+    best_gap, cut = 0.0, MERGE_DISTANCE
+    for k in range(len(ds) + 1):
+        below = ds[k - 1] if k else SAME_VOICE
+        above = ds[k] if k < len(ds) else FARTHEST
+        if below <= HIGHEST_MERGE and above >= LOWEST_SPLIT and above - below > best_gap:
+            best_gap, cut = above - below, (below + above) / 2
+    return cut if best_gap >= MIN_GAP else MERGE_DISTANCE
+
+
+def merge_groups(prints: dict, speakers: int = 0, max_distance: float | None = None) -> dict:
+    """Merge groups with close voiceprints. Returns {group: speaker}, speaker 0 = who talks the most.
+    With `speakers` > 0, merge until that many are left. Otherwise merge up to `max_distance`, which by default is worked out from the
+    meeting itself (see automatic_distance): a fixed distance sits above the gap in some meetings and below it in others."""
+    steps = _merge_steps(prints)
+    cut = automatic_distance([d for _i, _j, d, tiny in steps if not tiny]) if max_distance is None else max_distance
+    members = {g: [g] for g in prints}
+    weight = {g: w for g, (_v, w) in prints.items()}
+    left = len(prints)
+    for i, j, d, tiny in steps:
+        if not tiny:
+            if speakers and left <= speakers:
+                break
+            if not speakers and d > cut:
+                break
+        members[j] += members.pop(i)
+        weight[j] += weight.pop(i)
+        left -= 1
+    ranked = sorted(members, key=lambda g: -weight[g])
+    return {m: n for n, g in enumerate(ranked) for m in members[g]}
 
 
 def diarize(audio: np.ndarray, speakers: int = 0, progress=lambda msg: None) -> list[tuple[float, float, int]]:

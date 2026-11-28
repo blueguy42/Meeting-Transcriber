@@ -2,9 +2,9 @@
 const $ = (id) => document.getElementById(id);
 const FIELDS = ["language", "model", "compress_audio", "default_prompt", "my_label", "others_label",
                 "meetings_dir", "claude_path", "claude_model"];
-const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system", "diarize", "overlay_in_captures", "use_notes", "use_documents", "documents_ocr"];
+const CHECKS = ["auto_summarize", "export_docx", "start_muted_mic", "start_muted_system", "diarize", "name_speakers", "overlay_in_captures", "use_notes", "use_documents", "documents_ocr"];
 for (let n = 1; n <= 12; n++) $("diarize_speakers").add(new Option(n === 1 ? "1 other person" : n + " other people", String(n)));
-const syncDiarize = () => { $("diarize_speakers").disabled = !$("diarize").checked; };
+const syncDiarize = () => { $("diarize_speakers").disabled = !$("diarize").checked; $("name_speakers").disabled = !$("diarize").checked; };
 $("diarize").addEventListener("change", syncDiarize);
 let state = null;            // last snapshot from the app
 let currentPrompt = null;

@@ -22,8 +22,9 @@ class BarHost(Protocol):
     def overlay_status(self) -> dict:
         """The processing panel: {"jobs": [...], "canRecord": bool}."""
 
-    def overlay_status_action(self, act: str, job_id: int | None) -> None:
-        """A button in the processing panel: "summary" | "folder" | "record" | "close" | "pause" | "resume" | "cancel" | "again" | "dismiss"."""
+    def overlay_status_action(self, act: str, job_id: int | None, arg: str | None = None) -> None:
+        """A button in the processing panel: "summary" | "folder" | "record" | "close" | "pause" | "resume" | "cancel" | "again" | "dismiss",
+        or one in a finished meeting's speakers (arg is the speaker's label): "play" | "nextsample" | "rename" | "resummarize" | "namespeakers"."""
 
     def overlay_docs(self) -> dict:
         """The documents list: {"docs": [...]}."""

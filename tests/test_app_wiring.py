@@ -92,6 +92,89 @@ class Wiring(unittest.TestCase):
         self.assertIn(self.app.recording.toggle, mapping.values())
         self.assertIn(self.app.recording.shot, mapping.values())
 
+    def make_meeting(self):
+        from meeting_transcriber.meetings.meeting import Meeting
+
+        m = Meeting(self.app.cfg.meetings_dir / "2026-10-29_1000 - Weekly sync")
+        m.create()
+        m.write_meta({"started": "2026-10-29T10:00:00", "duration": 100.0})
+        m.new_transcript_file.write_text("# T\n\n[00:00:03] Me: hi\n[00:00:06] Others 1: Budi here, hello everyone.\n[00:00:20] Others 2: Thanks.\n")
+        return m
+
+    def test_a_finished_meeting_in_the_panel_lists_its_speakers(self):
+        a, m = self.app, self.make_meeting()
+        job = a.jobs.add(m.folder, summarize=False)
+        a.jobs.finish(job, m.folder, m.transcript_file)
+        done = a.presenter.overlay_status()["jobs"][0]
+        self.assertEqual([r["label"] for r in done["speakers"]], ["Others 1", "Others 2"])
+        self.assertFalse(done["canPlay"])  # no recording kept in this folder
+        self.assertFalse(done["speakersChecked"])
+
+    def test_naming_a_speaker_from_the_panel_asks_for_a_name_and_updates_the_transcript_and_the_rows(self):
+        a, m = self.app, self.make_meeting()
+        job = a.jobs.add(m.folder, summarize=False)
+        a.jobs.finish(job, m.folder, m.transcript_file)
+        with mock.patch("meeting_transcriber.app.speaker_controller.ask_name", return_value="Rina") as ask, mock.patch("meeting_transcriber.app.speaker_controller.bring_to_front"):
+            a.presenter.overlay_status_action("rename", job, "Others 2")
+        self.assertEqual(ask.call_args[0][0], "Who is Others 2?")
+        self.assertIn("] Rina: Thanks.", m.transcript_file.read_text())
+        rows = {r["label"]: r["name"] for r in a.presenter.overlay_status()["jobs"][0]["speakers"]}
+        self.assertEqual(rows, {"Others 1": None, "Others 2": "Rina"})  # the panel's list is fresh, not cached
+
+    def test_a_name_that_is_refused_asks_again(self):
+        a, m = self.app, self.make_meeting()
+        job = a.jobs.add(m.folder, summarize=False)
+        a.jobs.finish(job, m.folder, m.transcript_file)
+        with mock.patch("meeting_transcriber.app.speaker_controller.ask_name", side_effect=["Me", "Rina"]) as ask, \
+                mock.patch("meeting_transcriber.app.speaker_controller.alert") as alert, mock.patch("meeting_transcriber.app.speaker_controller.bring_to_front"):
+            a.presenter.overlay_status_action("rename", job, "Others 2")
+        self.assertEqual(ask.call_count, 2)
+        alert.assert_called_once()
+        self.assertIn("] Rina: Thanks.", m.transcript_file.read_text())
+
+    def test_the_summary_is_updated_from_a_stale_panel_through_the_processing_controller(self):
+        a, m = self.app, self.make_meeting()
+        job = a.jobs.add(m.folder, summarize=False)
+        a.jobs.finish(job, m.folder, m.transcript_file)
+        other = a.jobs.add(m.folder, summarize=False)  # (a button dismisses its tab, so the second action needs its own)
+        a.jobs.finish(other, m.folder, m.transcript_file)
+        with mock.patch.object(a.processing, "run_pipeline") as run:
+            a.presenter.overlay_status_action("resummarize", job)
+            a.presenter.overlay_status_action("namespeakers", other)
+        self.assertEqual([c.kwargs for c in run.call_args_list], [{"summarize_only": True}, {"name_only": True}])
+
+    def test_the_next_sample_stops_the_one_that_is_playing(self):
+        a, m = self.app, self.make_meeting()
+        job = a.jobs.add(m.folder, summarize=False)
+        a.jobs.finish(job, m.folder, m.transcript_file)
+        key = (str(m.folder), "Others 1")
+        with mock.patch.object(a.speakers.player, "stop") as stop:
+            a.speakers.playing = key
+            a.presenter.overlay_status_action("nextsample", job, "Others 1")
+        stop.assert_called_once_with()
+        self.assertEqual(a.speakers.sample_at[key], 1)  # and the next press plays the next sample
+
+    def test_the_sample_of_a_named_speaker_stays_on_show_once_you_have_asked_for_another(self):
+        a, m = self.app, self.make_meeting()
+        job = a.jobs.add(m.folder, summarize=False)
+        a.jobs.finish(job, m.folder, m.transcript_file)
+        from meeting_transcriber.meetings import speakers
+
+        speakers.set_names(m, a.cfg, {"Others 1": {"name": "Budi", "by": "claude"}})
+        rows = lambda: {r["label"]: r["showSample"] for r in a.presenter.overlay_status()["jobs"][0]["speakers"]}
+        self.assertEqual(rows(), {"Others 1": False, "Others 2": False})  # a named speaker shows no sample until you ask
+        a.presenter.overlay_status_action("nextsample", job, "Others 1")
+        self.assertEqual(rows()["Others 1"], True)  # and it does not vanish when the one playing stops
+
+    def test_the_menu_can_name_the_speakers_of_any_meeting(self):
+        menu = self.app.presenter.overlay_menu()
+        process = next(i for i in menu if i.get("id") == "process")
+        self.assertEqual([o["id"] for o in process["sub"]], ["transcribe", "speakers", "summarize"])  # one submenu, the steps in order
+        self.assertNotIn("summarize", [i.get("id") for i in menu])  # (no longer loose in the main menu)
+        with mock.patch.object(self.app.processing, "name_chosen") as chosen:
+            self.app.presenter.overlay_menu_click("speakers")
+        chosen.assert_called_once_with()
+
 
 if __name__ == "__main__":
     unittest.main()

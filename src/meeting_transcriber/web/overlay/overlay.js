@@ -49,7 +49,7 @@
     } else {
       setRing("#64a8ff", Math.max(0.03, job.progress), "#3a3b42");
       $("glyph").innerHTML = job.stage === "transcribing" ? GLYPHS.wave : job.stage === "queued" ? GLYPHS.clock : GLYPHS.doc;
-      timer = job.stage === "transcribing" ? Math.round(job.progress * 100) + "%" : job.stage === "queued" ? "Waiting" : job.stage === "reading" ? "Reading" : job.stage === "summarizing" ? "Writing" : "Saving";
+      timer = job.stage === "transcribing" ? Math.round(job.progress * 100) + "%" : job.stage === "queued" ? "Waiting" : job.stage === "reading" ? "Reading" : job.stage === "summarizing" ? "Writing" : job.stage === "naming" ? "Naming" : "Saving";
       label = "Show processing status";
     }
     $("rec").setAttribute("aria-label", label);

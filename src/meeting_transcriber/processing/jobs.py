@@ -14,7 +14,7 @@ from pathlib import Path
 from . import progress
 
 # share of the overall progress ring each step covers (with no summary, transcribing takes the summary's share too)
-WEIGHTS = {"transcribe": 0.6, "summarize": 0.3, "save": 0.1}
+WEIGHTS = {"transcribe": 0.6, "summarize": 0.3, "save": 0.1, "naming": 0.0}
 FOLDER = re.compile(r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})(?:-\d+)?(?: - (.+))?$")
 KEEP_DONE_SECONDS = 600  # a finished meeting stays in the panel this long unless you dismiss it
 
@@ -60,7 +60,7 @@ class Tracker:
 
     # ---- worker side
     def add(self, folder: Path, summarize: bool, transcribe: bool = True, recorded: bool = True, notes: int = 0, diarize: bool = False,
-            documents: int = 0, reading: bool = False, mode: str = "full") -> int:
+            documents: int = 0, reading: bool = False, mode: str = "full", naming: bool = False) -> int:
         steps = []
         if recorded:
             steps.append(_step("recorded", "Recorded", "done"))
@@ -68,6 +68,8 @@ class Tracker:
             steps.append(_step("readdocs", "Reading documents"))
         if transcribe:
             steps.append(_step("transcribe", "Transcribing"))
+        if naming:  # Claude names the speakers from the transcript, once it is written
+            steps.append(_step("naming", "Naming speakers"))
         if summarize:
             steps.append(_step("summarize", "Summarizing"))
             lines = []  # what the summary will use besides the transcript: say so under the step
@@ -77,10 +79,11 @@ class Tracker:
                 lines.append(f"{'and ' if notes else 'with '}{documents} document{'s' if documents != 1 else ''}")
             if lines:
                 steps[-1]["detail"] = "\n".join(lines)
-        steps.append(_step("save", "Saving files"))
+        if mode != "name":
+            steps.append(_step("save", "Saving files"))
         job = {"id": next(self._ids), "folder": str(folder), "name": display_name(folder.name), "when": when_text(folder.name), "state": "queued",
                "steps": steps, "diarize": bool(diarize and transcribe), "out": None, "error": "", "seen": False, "finished": 0.0,
-               "mode": mode, "paused_at": None, "note": "", "stopping": ""}  # mode: "full" | "transcribe" | "summarize"
+               "mode": mode, "paused_at": None, "note": "", "stopping": ""}  # mode: "full" | "transcribe" | "summarize" | "name"
         with self._lock:
             self._jobs.append(job)
         self.on_change()
@@ -150,6 +153,9 @@ class Tracker:
                 step = self._advance(job, "readdocs")
                 if step is not None:
                     step["sub"] = f"{ev['done']} of {ev['total']}"
+            elif ev["kind"] == "naming":
+                if any(st["key"] == "naming" for st in job["steps"]):  # (a summary run that has to name the speakers first has no such step)
+                    self._advance(job, "naming")
             elif ev["kind"] == "summarizing":
                 self._advance(job, "summarize")
             elif ev["kind"] == "docx":
@@ -296,6 +302,9 @@ class Tracker:
         if any(s["key"] == "readdocs" for s in job["steps"]):
             w["transcribe"] -= 0.05
             w["readdocs"] = 0.05
+        if any(s["key"] == "naming" for s in job["steps"]):
+            w["transcribe"] -= 0.04
+            w["naming"] = 0.04
         if not any(s["key"] == "summarize" for s in job["steps"]):
             w["transcribe"] += w.pop("summarize")
         return w
@@ -322,4 +331,4 @@ class Tracker:
         if job["state"] in ("done", "failed", "queued", "paused", "cancelled"):
             return job["state"]
         now = next((s["key"] for s in job["steps"] if s["state"] == "now"), "transcribe")
-        return {"readdocs": "reading", "transcribe": "transcribing", "summarize": "summarizing", "save": "saving"}.get(now, "transcribing")
+        return {"readdocs": "reading", "transcribe": "transcribing", "naming": "naming", "summarize": "summarizing", "save": "saving"}.get(now, "transcribing")

@@ -2,12 +2,16 @@ import re
 import shutil
 from pathlib import Path
 
+from ..meetings import speakers
 from ..meetings.audio import compress_meeting, has_audio
 from ..meetings.meeting import Meeting
+from ..settings import config
 from ..settings.model import Settings
+from ..summary.name_speakers import name_speakers
 from ..summary.summarize import summarize_meeting
 from ..transcription import transcribe_meeting
-from .progress import DOCX, SUMMARIZING
+from .control import Stopped
+from .progress import DOCX, NAMING, NAMING_SKIPPED, SUMMARIZING
 
 UNTITLED = re.compile(r"^\d{4}-\d{2}-\d{2}_\d{4}(-\d+)?$")  # e.g. 2026-10-07_1030
 
@@ -17,10 +21,31 @@ def process(meeting: Meeting, cfg: Settings, prompt_name: str | None = None, pro
     transcript = transcribe_meeting(meeting, cfg, progress)
     for note in compress_meeting(meeting, cfg.compress_audio):
         progress(f"Audio compression: {note}")
+    name_the_speakers(meeting, cfg, progress)
     if not cfg.auto_summarize:
         return meeting, transcript
     progress(SUMMARIZING)
     return finish(meeting, cfg, summarize_meeting(meeting, cfg, prompt_name), progress)
+
+
+def naming_wanted(meeting: Meeting, cfg: Settings) -> bool:
+    """Is it worth asking Claude for the speakers' names: it is on, the other people were told apart, Claude Code is there."""
+    return bool(cfg.name_speakers and cfg.diarize and config.find_claude(cfg) and speakers.raw_labels(meeting, cfg))
+
+
+def name_the_speakers(meeting: Meeting, cfg: Settings, progress=print) -> None:
+    """After a transcript is written: names the user chose stay, then Claude names the others it has proof for.
+    Never fails the meeting: without names the transcript is just as good as it was."""
+    speakers.apply_saved(meeting, cfg)
+    if not naming_wanted(meeting, cfg):
+        return
+    progress(NAMING)
+    try:
+        name_speakers(meeting, cfg)
+    except Stopped:
+        raise
+    except Exception as e:
+        progress(f"{NAMING_SKIPPED}{str(e)[:120]}")
 
 
 def transcribe_existing(meeting: Meeting, cfg: Settings, prompt_name: str | None = None, progress=print) -> tuple[Meeting, Path]:
@@ -38,6 +63,7 @@ def summarize_existing(meeting: Meeting, cfg: Settings, prompt_name: str | None 
         transcribe_meeting(meeting, cfg, progress)
         for note in compress_meeting(meeting, cfg.compress_audio):
             progress(f"Audio compression: {note}")
+        name_the_speakers(meeting, cfg, progress)
     progress(SUMMARIZING)
     return finish(meeting, cfg, summarize_meeting(meeting, cfg, prompt_name), progress)
 
@@ -46,6 +72,7 @@ def finish(meeting: Meeting, cfg: Settings, summary: Path, progress=print) -> tu
     """After a summary exists: Word export, then add the title to the folder name."""
     out = make_docx(meeting, cfg, summary, progress) or summary
     renamed = rename_with_title(meeting, summary)
+    speakers.mark_summary_current(renamed)  # the summary now uses the names the transcript has
     return renamed, renamed.folder / out.name
 
 
@@ -87,3 +114,14 @@ def rename_with_title(meeting: Meeting, summary: Path) -> Meeting:
         return Meeting(shutil.move(str(meeting.folder), str(target)))
     except OSError:
         return meeting
+
+
+def name_existing(meeting: Meeting, cfg: Settings, progress=print) -> tuple[Meeting, Path]:
+    """Name the speakers of a finished meeting (asks Claude, whatever the 'name speakers' setting says: you asked)."""
+    if not meeting.has_transcript:
+        raise ValueError("This meeting has no transcript yet.")
+    if not speakers.raw_labels(meeting, cfg):
+        raise ValueError("The transcript has no separate speakers to name (speakers were not told apart).")
+    progress(NAMING)
+    name_speakers(meeting, cfg)
+    return meeting, meeting.transcript_file

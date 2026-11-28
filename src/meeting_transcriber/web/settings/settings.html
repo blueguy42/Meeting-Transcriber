@@ -83,14 +83,18 @@
       <div class="row"><label for="diarize_speakers">Number of people</label>
         <div><select id="diarize_speakers"><option value="0">Work it out automatically</option></select>
         <div class="hint">If people get merged or split wrongly, set how many other people were on the call.</div></div></div>
+      <div class="row"><label>Their names</label>
+        <div><label class="check"><input type="checkbox" id="name_speakers"> Name them from the transcript</label>
+        <div class="hint">Claude reads the transcript and names the people it finds proof for (“Budi here…”, “Dina, over to you”). Text only: no audio is sent. Needs Claude Code. You can always change a name in the processing panel.</div></div></div>
     </fieldset>
 
     <fieldset>
       <legend>Labels in the transcript</legend>
-      <div class="row"><label for="my_label">Your microphone</label><div><input type="text" id="my_label" maxlength="30"></div></div>
-      <div class="row"><label for="others_label">Everyone else</label>
+      <div class="row"><label for="my_label">You</label><div><input type="text" id="my_label" maxlength="30">
+        <div class="hint">Lines from your microphone. Put your own name here if you like. It is never guessed or changed.</div></div></div>
+      <div class="row"><label for="others_label">People not named yet</label>
         <div><input type="text" id="others_label" maxlength="30">
-        <div class="hint">How lines are tagged, for example “Me: …” and “Others 1: …”. The two labels must differ.</div></div></div>
+        <div class="hint">Used while a speaker's name is not known: “Others 1: …”, “Others 2: …”. Once a name is found or set, that name is used instead. The two labels must differ.</div></div></div>
     </fieldset>
   </section>
 
@@ -100,7 +104,7 @@
       <legend>After a recording</legend>
       <div class="row"><label>Summary</label>
         <div><label class="check"><input type="checkbox" id="auto_summarize"> Summarize automatically with Claude</label>
-        <div class="hint">If off, you only get the transcript. Use ⋮ → Summarize a meeting… in the floating bar whenever you want a summary.</div></div></div>
+        <div class="hint">If off, you only get the transcript. Use ⋮ → Process a meeting → Summarize… in the floating bar whenever you want a summary.</div></div></div>
       <div class="row"><label>Word document</label>
         <div><label class="check"><input type="checkbox" id="export_docx"> Also save each summary as a .docx</label>
         <div class="hint">For every summary, automatic or manual.</div></div></div>

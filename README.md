@@ -30,7 +30,7 @@ items. You get a Word document and a text file, ready to share.
 1. [What you get](#what-you-get)
 2. [Get started](#get-started)
 3. [Everyday use](#everyday-use)
-   · [The bar](#the-bar) · [Screenshots](#taking-screenshots) · [Notes](#taking-notes) · [Documents](#adding-documents) · [After you stop](#after-you-stop) · [Summary styles](#summary-styles)
+   · [The bar](#the-bar) · [Screenshots](#taking-screenshots) · [Notes](#taking-notes) · [Documents](#adding-documents) · [After you stop](#after-you-stop) · [Naming the speakers](#naming-the-speakers) · [Summary styles](#summary-styles)
 4. [Where your files go](#where-your-files-go)
 5. [Settings](#settings)
 6. [Privacy and permissions](#privacy-and-permissions)
@@ -53,7 +53,7 @@ items. You get a Word document and a text file, ready to share.
 After every meeting, the app makes a folder containing:
 
 - a **summary** (Word document and Markdown file) with the key decisions and action items,
-- the **full transcript**, with timestamps and who said what ("Me", "Others", or "Others 1", "Others 2"… when it can tell people apart),
+- the **full transcript**, with timestamps and who said what ("Me", "Others", or "Others 1", "Others 2"… when it can tell people apart; and their real names, when the transcript shows them),
 - the **screenshots** you took. Claude picks the useful ones (slides, charts, documents) and places them in the right spot,
 - the **notes you typed** (`notes.txt`), which Claude also reads when writing the summary,
 - the **documents you added**, copied into the folder and used by Claude as background.
@@ -147,8 +147,9 @@ record (**screenshot, notes, add documents, documents list**; greyed out until y
 | Add documents for context | The paperclip button, or **Ctrl + Option + D**. See [Adding documents](#adding-documents) |
 | See or remove the added documents | The documents button (a page with a corner) |
 | Pick how the summary is written | **⋮ → Summary style** |
-| Summarize or re-summarize a past meeting | **⋮ → Summarize a meeting…**, then pick its folder |
-| Transcribe a meeting again (new model, language or names) | **⋮ → Transcribe a meeting…**, then pick its folder |
+| Transcribe a meeting again (new model, language or names) | **⋮ → Process a meeting → Transcribe…**, then pick its folder |
+| Name or rename the speakers of a past meeting | **⋮ → Process a meeting → Name speakers…**, then pick its folder |
+| Summarize or re-summarize a past meeting | **⋮ → Process a meeting → Summarize…**, then pick its folder |
 | Change settings | **⋮ → Settings…** (⌘ ,) |
 | Open the folder with all meetings | **⋮ → Open meetings folder** |
 
@@ -361,7 +362,7 @@ it just finishes. A paused meeting is forgotten if you quit the app (the recordi
 </p>
 
 You can start a new recording right away; a blue badge counts the tabs in the processing panel, and they are handled **one
-at a time**. The panel also shows meetings you re-process from the menu (**Transcribe a meeting…** has no "Recorded" step).
+at a time**. The panel also shows meetings you re-process from the menu (**Process a meeting → Transcribe…** has no "Recorded" step).
 
 The very first time (or if a half-finished download is found), the app first checks that the speech model is on your Mac and
 downloads it if not. The panel shows a **Downloading model** line with how many MB have arrived, and transcribing starts when it
@@ -370,6 +371,37 @@ is done. If nothing arrives for 5 minutes you are told to check your internet co
 <p align="center">
   <img src="docs/screenshots/processing-queue.png" alt="What an open tab shows: two meetings in the queue, transcribing an existing meeting, summarizing an existing meeting, downloading the speech model, a failed meeting" width="900">
 </p>
+
+### Naming the speakers
+
+The app tells the other people on a call apart by their voices, but a voice has no name: the transcript says "Others 1",
+"Others 2"… So that you can tell who is who, two things help.
+
+**Claude names the ones it has proof for.** Right after transcribing, Claude reads the transcript (text only, no audio) and names a
+speaker only when the transcript itself shows the name: someone introduces themselves ("Budi here"), is addressed and answers ("Dina,
+over to you"), or says their name in a roll call. Names you already gave the app (*Names and terms*, your notes, the meeting
+title) help it choose between similar spellings, but are never proof on their own. Anyone it cannot prove stays "Others 3". It never
+renames "Me", and never gives two people the same name. The proof for each name is kept in `meta.json`, and hovering a name shows it.
+
+<p align="center">
+  <img src="docs/screenshots/speakers-naming.png" alt="Claude reads the transcript and names the speakers it has proof for; the rules it follows" width="900">
+</p>
+
+**You can fix or fill in a name.** Open the finished meeting's tab in the processing panel and open **Speakers**. Each other
+person has a **play button** that plays about six seconds of their voice from the recording, with the words they said under it
+(and a *Next sample* link), so you can recognise them. Click the name (or *Who is this?*) to type one; the box offers the people Claude saw mentioned in the transcript, and names already used in that
+meeting. Pressing *Next sample* while a sample plays stops it. The transcript is rewritten at once, your choice is marked as yours and is never changed by a later run, and the summary
+offers an **Update summary** button because it was written with the old names. A meeting stays in the panel for ten minutes after it
+finishes; for any other one use **⋮ → Process a meeting → Name speakers…**.
+
+<p align="center">
+  <img src="docs/screenshots/speakers-rename.png" alt="The Speakers row in a finished meeting's tab: collapsed, open, listening to a sample, the name dialog, saved, and updating the summary" width="900">
+</p>
+
+- Switch the Claude step off with **Settings → Transcription → Speakers → Name them from the transcript**. It needs Claude Code and
+  *Tell them apart* to be on; without them the speakers simply stay "Others N".
+- If the recording was deleted, the play buttons are dimmed; the written line stays.
+- The names are written into `transcript.md`, so the summary, the Word file and the MCP tools all use them.
 
 ### Summary styles
 
@@ -402,7 +434,7 @@ Each meeting gets its own folder inside `~/Documents/Meetings` (changeable in Se
 │   └── extracted/          the text read from each file, for Claude
 ├── shots/                  every screenshot you took
 ├── recordings/             the audio (your mic and the other participants)
-└── meta.json               timing information the app needs
+└── meta.json               timing information the app needs, and the speakers' names
 ```
 
 - The folder name starts as the date and time. After the first summary, the **meeting title** is added. Summarizing again
@@ -445,8 +477,9 @@ immediately; other changes apply from the next recording.
 | Speech recognition → Model | "Large v3" is the most accurate; "turbo" is about 4× faster but slightly less accurate | large v3 |
 | Speech recognition → Names and terms | Names and jargon to spell correctly, e.g. *Budi, Dina, Tokopedia*. Also given to Claude so the summary uses the same spellings | empty |
 | Speakers → Other people | Numbers the other people on the call (Others 1, Others 2…) by voice. Runs on your Mac | on |
-| Speakers → Number of people | Work it out automatically, or set it if the app merges or splits someone | automatic |
-| Labels | The names shown in the transcript for you and for everyone else (must differ) | Me / Others |
+| Speakers → Number of people | Worked out from each meeting by default. Only set it if the app still merges or splits someone | automatic |
+| Speakers → Their names | Claude reads the transcript and names the people it finds proof for (text only; needs Claude Code) | on |
+| Labels → You / People not named yet | How lines are tagged: your own microphone (put your name here if you like) and speakers whose name is not known yet ("Others 1"…). Must differ | Me / Others |
 
 ### Summaries
 
@@ -512,7 +545,7 @@ a notification and the previous settings stay in effect.
 
 - **Very long meetings:** the whole transcript and all screenshots go to Claude in one request. The app sets no limit of its
   own (only a 30-minute timeout), but Claude's limits apply. A very long meeting or dozens of screenshots can make the summary
-  fail. Your transcript and audio are already saved, so retry with **Summarize a meeting…**.
+  fail. Your transcript and audio are already saved, so retry with **⋮ → Process a meeting → Summarize…**.
 - **Microphone:** the app uses whichever microphone macOS has selected. If you switch mid-meeting (AirPods connect, a mic is
   unplugged), it follows the new default within a few seconds and fills the gap with silence. With no microphone available it keeps retrying.
 - **Other participants:** the app records everything your Mac plays, from all apps mixed, whatever speakers or headphones you use.
@@ -544,7 +577,7 @@ a notification and the previous settings stay in effect.
 | A document was not added | A notification says why: already added, too big (over 100 MB), not a supported kind of file, or the limit of 30 documents |
 | No small boxes to click when pointing at buttons | Allow the app in System Settings → Privacy & Security → Accessibility (optional; whole windows and dragging work without it) |
 | Screenshot error about Screen Recording | Allow the app in System Settings → Privacy & Security, then restart it |
-| A meeting failed to process or summarize | **⋮ → Summarize a meeting…**, or use the command line below |
+| A meeting failed to process or summarize | **⋮ → Process a meeting → Summarize…**, or use the command line below |
 | The summary fails on a very long meeting | See "Very long meetings" above |
 | Other participants are silent in the transcript | The transcript starts with a ⚠ warning when a track was silent (stretches you muted yourself don't count). Check the Screen & System Audio Recording permission |
 
@@ -624,6 +657,7 @@ Run the tests with `.venv/bin/python -m unittest discover tests`. (The OCR tests
   screenshot times all use it, so nothing needs shifting. `cancel()` stops everything and deletes the meeting folder, but only
   when it is directly inside the meetings folder. The Stop-button flyout is `ctl` in `meeting_transcriber/web/popup/` (`ctl.js`, `ctl.css`) / `meeting_transcriber/bar/stop_menu.py`.
 - **`meta.json`** stores the start time, duration and the offsets that align mic, system audio and screenshots, plus
+  `speakers` (`{"Others 1": {"name", "by": "claude" | "user", "evidence", "at"}}`, see below), `speakers_checked` and `summary_stale`, plus
   `complete` (it is saved when the recording starts and kept up to date while it runs, one thread writing it and each save replacing the
   file in one step, so a crash leaves a recording you can still transcribe: it says `false` until you stop, and the transcript then
   warns that the end may be missing), plus
@@ -660,8 +694,10 @@ If speaker separation is on, the system track is also run through sherpa-onnx (`
 (`diarizing(percent)`, `MATCHING_VOICES`, `downloading_model(n)`, `speakers_found(...)`), which `meeting_transcriber/processing/jobs.py` turns into the
 "Speakers" line (listed only when `diarize` is on; *Skipped* if the models could not be loaded). Pyannote segmentation cuts
 the track into speech turns, grouped by voice (3D-Speaker embeddings, CPU, ~25× real time). The groups are deliberately too
-fine; each is averaged into one voiceprint and groups whose voiceprints are close (cosine distance below 0.35) are merged,
-tiny groups first. Each Whisper segment gets the speaker who talks most during it. The two models (~35 MB) are downloaded to
+fine; each is averaged into one voiceprint and the closest groups are merged, tiny groups first. How many people there are is worked
+out from the meeting itself (`automatic_distance`): merges of one person's voice happen at small distances (up to about 0.2) and merges of two people at larger ones
+(0.3 and more), so merging stops in the middle of the widest gap between them (never above 0.30, never below 0.25, and 0.30 when there is no clear gap). A fixed
+distance was above that gap in some meetings and joined two people; the *Number of people* setting still overrides all this. Each Whisper segment gets the speaker who talks most during it. The two models (~35 MB) are downloaded to
 `~/Library/Application Support/MeetingTranscriber/models` the first time; if that fails, the transcript is made without
 numbering and says so at the top.
 
@@ -683,6 +719,21 @@ since the recording started, status, progress, a 300-character preview) and one 
   ones are enlarged 2× first.
 - A recording that stops while files are still being read gets a *Reading documents* step in the progress panel, and the
   summary waits for it. Deleting a document cancels its reading and removes the copy, the text and the entry.
+
+### How speaker names work
+- Voices are separated first (`transcription/diarize.py`), giving "Others 1…" by how much each talks. `processing/pipeline.py:name_the_speakers` then runs once the
+  transcript is written: it puts back the names the user chose (`speakers.apply_saved`; Claude's are dropped and asked for again) and, if *Name them from
+  the transcript* is on, Claude Code is found and there are other speakers, `summary/name_speakers.py` sends the transcript as text (`claude -p`, **no tools allowed**,
+  so nothing in a transcript can make it read or run anything) and asks for JSON. `check()` keeps only what passes: the speaker exists, the name is allowed (never
+  the user's own label), and its `evidence` is a piece of a real transcript line; two speakers with the same name get neither unless Claude lists them as the same
+  person. A failure only logs "Speaker names skipped" and never fails the meeting.
+- The names live in `meta.json` (`speakers`, keyed by the *raw* label, with `by`: `claude` or `user`; a user's choice is never replaced by Claude's) and `transcript.md` is
+  rewritten with them, line by line, keeping timestamps. `summary_stale` is set when names change after a summary exists and cleared when a summary is written.
+- The Speakers rows are `app/speaker_controller.py` (rows are cached by file times) and the `.sp*` elements of `web/popup/status.js`. A sample is the longer lines where nobody else
+  starts talking within six seconds; `desktop/player.py` plays that stretch of the kept system track (WAV, AAC or FLAC) with `AVAudioPlayer` and a timer. Typing a name uses a
+  native dialog with a combo box (`desktop/macos.ask_name`): the panel never takes the keyboard from the meeting app.
+  The names it offers are `meta.json` → `people` (Claude lists every *person* named in the transcript; each must really appear in it) plus names already used there: never the
+  words of the meeting title or the terms in Settings.
 
 ### How summarizing works
 `meeting_transcriber/summary/summarize.py` runs `claude -p` with the chosen prompt, the transcript and a calendar of the next 15 days (so "next Friday"
@@ -796,16 +847,16 @@ through `processing` (`progress.py`, `control.py`).
 
 | Path | Purpose |
 |---|---|
-| `app/` | the running app. `app.py` owns what the parts share (settings, recorder, jobs, the bar), the hotkeys and quitting, and puts four parts together: `recording_controller.py` (record, pause, mute, screenshots, notes, documents), `processing_controller.py` (summarize / transcribe jobs: queue, pause, resume, cancel), `permission_controller.py` (macOS permission prompts) and `bar_presenter.py` (what the bar shows and what its buttons do) |
+| `app/` | the running app. `app.py` owns what the parts share (settings, recorder, jobs, the bar), the hotkeys and quitting, and puts five parts together: `recording_controller.py` (record, pause, mute, screenshots, notes, documents), `processing_controller.py` (summarize / transcribe jobs: queue, pause, resume, cancel), `permission_controller.py` (macOS permission prompts), `speaker_controller.py` (the Speakers rows of a finished meeting: samples, renaming) and `bar_presenter.py` (what the bar shows and what its buttons do) |
 | `bar/`, `web/overlay/`, `web/popup/` | the floating bar (`bar.py`: placement, dragging, the pointer) and one class per popup beside it (all based on `popup.py`): `tips`, `toast`, `menu`, `stop_menu`, `status` (processing tabs), `notes`, `docs`; `host.py` is what the bar needs from the app; `surfaces.py` holds the window and web-view classes |
-| `meetings/` | `meeting.py` (`Meeting`: the one place that knows what a meeting folder holds and what each file is called), then what is in it: `notes.py` (`notes.txt`; panel in `web/notes.html`), `documents.py` (copying, the manifest, the background reader), `ocr.py` (Apple Vision), `audio.py` (the recorded tracks and shrinking them after transcribing) |
+| `meetings/` | `meeting.py` (`Meeting`: the one place that knows what a meeting folder holds and what each file is called), `speakers.py` (the other speakers' names: kept in `meta.json`, written into `transcript.md`, samples to listen to), then what is in it: `notes.py` (`notes.txt`; panel in `web/notes.html`), `documents.py` (copying, the manifest, the background reader), `ocr.py` (Apple Vision), `audio.py` (the recorded tracks and shrinking them after transcribing) |
 | `recording/` | `recorder.py` (mic + system audio, pause, mute), `clock.py` (recording time without pauses), `wavtools.py`, `coreaudio.py`, `device_events.py`, `device_toast.py` and `device_watcher.py` (device changes, the toast wording, and noticing a switch when nothing is recording), `screen.py`, `screenshot.py` (choosing the area), `snap.py` (boxes to snap to), `flash.py` |
 | `transcription/` | `transcribe.py` (the whole flow), `models.py` (`ensure_model`: checks the model is complete, downloads it with progress), `analysis.py` (speech and echo detection), `decoding.py` (Whisper), `checkpoint.py` (resume after pause), `segments.py` (merging, labels, markers), `diarize.py` (telling the other people apart, sherpa-onnx) |
 | `processing/` | `pipeline.py` (the processing flow), `jobs.py` and `progress.py` (progress of the meetings being processed), `control.py` (pausing and cancelling; `Stopped` is raised from the progress reports) |
-| `summary/` | `summarize.py` (the Claude summary), `docx_export.py` (Word export) |
+| `summary/` | `summarize.py` (the Claude summary), `name_speakers.py` (Claude names the speakers from the transcript, and checks its answer), `docx_export.py` (Word export) |
 | `settings/` | `model.py` (`Settings`: every setting, typed, with its default; the names are the keys of `config.toml`), `config.py` (reading and writing `config.toml`, and paths), `api.py` (validation and the settings window's operations), `window.py` (the window; page in `web/settings/`) |
 | `web/` | the pages shown in the bar's panels and the Settings window. One folder per page (`overlay`, `popup`, `notes`, `settings`): `<name>.html` with its `.css` and `.js` files beside it, in the order the page lists them (`popup` has one pair per popup: `tip`, `toast`, `ctl`, `menu`, `status`, `docs`); `shared/` holds what every page uses; `__init__.py` writes a page's files into its HTML so the web view can load it |
-| `desktop/` | macOS glue: `macos.py` (main thread, dialogs, notifications, Dock), `hotkeys.py` (global hotkeys), `permissions.py` |
+| `desktop/` | macOS glue: `macos.py` (main thread, dialogs, notifications, Dock), `player.py` (plays a sample of a voice), `hotkeys.py` (global hotkeys), `permissions.py` |
 | `integrations/mcp_server.py`, `cli.py`, `log.py` | MCP server for Claude Desktop, command line, logging |
 | `native/sck-audio/`, `native/launcher/` | Swift helpers: system-audio capture, app launcher |
 | `resources/` | built-in summary styles (`prompts/`), the app icon (`icons/`), `config.example.toml` |

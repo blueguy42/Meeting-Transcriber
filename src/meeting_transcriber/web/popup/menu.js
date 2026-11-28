@@ -1,30 +1,40 @@
   function renderMenu(s) {
-    const items = s.items.map((it, i) => {
+    let n = 0;  // the submenus are numbered from 1 in the order of their rows
+    const items = s.items.map((it) => {
       if (it.divider) return '<div class="sep"></div>';
       const label = esc(it.label), hint = it.hint ? '<span class="k" style="margin:0">' + esc(it.hint) + "</span>" : "";
       if (it.sub) {
-        return '<div class="row' + (subOpen ? " open" : "") + '" role="menuitem" tabindex="0" data-sub="1"><span>' + label + '</span><span class="k" style="margin:0">' + (s.side === "right" ? "‹" : "›") + "</span></div>";
+        n++;
+        return '<div class="row' + (subOpen === n ? " open" : "") + '" role="menuitem" tabindex="0" data-sub="' + n + '"><span>' + label + '</span><span class="k" style="margin:0">' + (s.side === "right" ? "‹" : "›") + "</span></div>";
       }
       return '<div class="row" role="menuitem" tabindex="0" data-id="' + esc(it.id) + '"><span>' + label + "</span>" + hint + "</div>";
     }).join("");
     const menu = '<div class="card menu" role="menu">' + items + "</div>";
-    // The submenu is always laid out (just hidden), so the panel never resizes when it opens: resizing a web view
-    // flickers. Python lets clicks pass through the empty parts of the panel (see "rects").
-    let sub = "";
-    const withSub = s.items.find((x) => x.sub);
-    if (withSub) {
-      sub = '<div class="card sub" role="menu">' + withSub.sub.map((o) =>
-        '<div class="row" role="menuitemradio" tabindex="0" data-id="' + esc(o.id) + '"><span>' + esc(o.label) + "</span><span class=\"k\" style=\"margin:0\">" + (o.checked ? "✓" : "") + "</span></div>").join("") + "</div>";
-    }
+    // The submenus are always laid out (just hidden), one on top of the other beside the menu, so the panel never resizes when one
+    // opens: resizing a web view flickers. Each is moved down to the level of its own row (see alignSubs). Python lets clicks pass
+    // through the empty parts of the panel (see "rects").
+    const withSub = s.items.filter((x) => x.sub);
+    const subs = withSub.map((w, k) => '<div class="card sub' + (subOpen === k + 1 ? " on" : "") + '" role="menu" data-subid="' + (k + 1) + '">' + w.sub.map((o) =>
+      '<div class="row" role="' + ("checked" in o ? "menuitemradio" : "menuitem") + '" tabindex="0" data-id="' + esc(o.id) + '"><span>' + esc(o.label) + "</span>" + ("checked" in o ? '<span class="k" style="margin:0">' + (o.checked ? "✓" : "") + "</span>" : "") + "</div>").join("") + "</div>").join("");
     wrap.style.flexDirection = s.side === "right" ? "row-reverse" : "row";
-    return menu + sub;
+    return menu + (withSub.length ? '<div class="subs">' + subs + "</div>" : "");
   }
 
-  function setSub(open) {
-    if (open === subOpen) return;
-    subOpen = open;
-    const row = wrap.querySelector(".row[data-sub]"), sub = wrap.querySelector(".sub");
-    if (row) row.classList.toggle("open", open);
-    if (sub) sub.classList.toggle("on", open);
+  // each submenu sits level with the row that opens it (the first one 7px down, as it always did)
+  function alignSubs() {
+    const first = wrap.querySelector(".row[data-sub]");
+    if (!first) return;
+    const top = first.getBoundingClientRect().top;
+    wrap.querySelectorAll(".sub").forEach((card) => {
+      const row = wrap.querySelector('.row[data-sub="' + card.dataset.subid + '"]');
+      if (row) card.style.marginTop = (7 + row.getBoundingClientRect().top - top) + "px";
+    });
+  }
+
+  function setSub(n) {  // n: the number of the submenu to show, 0 for none
+    if (n === subOpen) return;
+    subOpen = n;
+    wrap.querySelectorAll(".row[data-sub]").forEach((row) => row.classList.toggle("open", Number(row.dataset.sub) === n));
+    wrap.querySelectorAll(".sub").forEach((card) => card.classList.toggle("on", Number(card.dataset.subid) === n));
     postRects();
   }

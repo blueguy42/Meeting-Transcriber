@@ -136,6 +136,34 @@ class Flow(unittest.TestCase):
         t.begin(i)
         self.assertEqual([s["key"] for s in t.snapshot()[0]["steps"]], ["recorded", "transcribe", "save"])
 
+    def test_naming_the_speakers_is_a_step_between_transcribing_and_summarizing(self):
+        t = Tracker(("Me", "Others"))
+        i = t.add(Path("/m/2026-10-20_1500"), summarize=True, naming=True)
+        self.assertEqual([s["key"] for s in t.snapshot()[0]["steps"]], ["recorded", "transcribe", "naming", "summarize", "save"])
+        t.begin(i)
+        t.feed(i, progress.transcribing("Me", 0.5))
+        self.assertEqual(progress.parse(progress.NAMING, ["Me", "Others"]), {"kind": "naming"})
+        t.feed(i, progress.NAMING)
+        snap = t.snapshot()[0]
+        self.assertEqual((snap["stage"], [s["state"] for s in snap["steps"]]), ("naming", ["done", "done", "now", "todo", "todo"]))
+        t.feed(i, progress.SUMMARIZING)
+        self.assertEqual(t.snapshot()[0]["stage"], "summarizing")
+
+    def test_a_run_that_names_the_speakers_without_having_the_step_does_not_finish_the_job_early(self):
+        t = Tracker(("Me", "Others"))
+        i = t.add(Path("/m/2026-10-20_1500"), summarize=True, transcribe=False, recorded=False, mode="summarize")
+        t.begin(i)
+        t.feed(i, progress.NAMING)
+        self.assertEqual([s["state"] for s in t.snapshot()[0]["steps"]], ["now", "todo"])
+
+    def test_a_naming_only_job_is_one_step(self):
+        t = Tracker(("Me", "Others"))
+        i = t.add(Path("/m/2026-10-20_1500"), summarize=False, transcribe=False, recorded=False, mode="name", naming=True)
+        t.begin(i)
+        self.assertEqual([s["key"] for s in t.snapshot()[0]["steps"]], ["naming"])
+        t.finish(i, Path("/m/2026-10-20_1500"), Path("/m/2026-10-20_1500/transcript.md"))
+        self.assertEqual(t.snapshot()[0]["state"], "done")
+
 
 if __name__ == "__main__":
     unittest.main()

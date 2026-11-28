@@ -8,6 +8,8 @@ import re
 
 SUMMARIZING = "Summarizing with Claude…"
 DOCX = "Creating Word document…"
+NAMING = "Naming speakers…"
+NAMING_SKIPPED = "Speaker names skipped: "  # followed by the reason
 
 
 def transcribing(label: str, fraction: float | None = None, bursts: int | None = None) -> str:
@@ -63,6 +65,8 @@ def parse(msg: str, labels: list[str]) -> dict | None:
         return {"kind": "diarizing", "fraction": 0.0, "note": f"Downloading model {m.group(1)} of 2"}
     if len(labels) > 1 and (re.fullmatch(rf"Found \d+ {re.escape(labels[1])} speaker\(s\)", msg) or msg == f"{labels[1]}: one speaker"):
         return {"kind": "diarized", "failed": False}
+    if msg == NAMING:
+        return {"kind": "naming"}
     if msg == SUMMARIZING:
         return {"kind": "summarizing"}
     if msg == DOCX:

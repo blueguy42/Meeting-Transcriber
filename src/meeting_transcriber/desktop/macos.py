@@ -111,3 +111,27 @@ def stay_responsive():
     _activity = NSProcessInfo.processInfo().beginActivityWithOptions_reason_(
         user_initiated | latency_critical, "The floating control bar has to react instantly"
     )
+
+
+def ask_name(title: str, message: str, suggestions: list[str], current: str = "") -> str | None:
+    """A modal dialog with a text box that also offers `suggestions` (a drop-down you can type over). -> the text, or None if cancelled."""
+    from AppKit import NSAlert, NSComboBox
+    from Foundation import NSMakeRect
+
+    a = NSAlert.alloc().init()
+    a.setMessageText_(title)
+    a.setInformativeText_(message)
+    icon = app_icon()
+    if icon is not None:
+        a.setIcon_(icon)
+    a.addButtonWithTitle_("Save")
+    a.addButtonWithTitle_("Cancel")
+    box = NSComboBox.alloc().initWithFrame_(NSMakeRect(0, 0, 260, 26))
+    box.addItemsWithObjectValues_(list(suggestions))
+    box.setCompletes_(True)
+    box.setStringValue_(current)
+    a.setAccessoryView_(box)
+    a.window().setInitialFirstResponder_(box)
+    if a.runModal() != 1000:
+        return None
+    return str(box.stringValue()).strip()

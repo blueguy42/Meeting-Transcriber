@@ -19,10 +19,12 @@ class Host:
     def overlay_in_captures(self): return False
     def overlay_action(self, op): self.calls.append(("action", op))
     def overlay_tip(self, tip_id): return {"text": f"tip {tip_id}", "hotkey": None}
-    def overlay_menu(self): return [{"id": "settings", "label": "Settings…"}]
+    menu_items = [{"id": "settings", "label": "Settings…"}]
+    def overlay_menu(self): return self.menu_items
     def overlay_menu_click(self, item_id): self.calls.append(("menu", item_id))
-    def overlay_status(self): return {"jobs": [{"id": 1, "name": "Weekly sync", "state": "active", "stage": "x", "progress": 0.4, "when": "", "buttons": []}], "canRecord": True}
-    def overlay_status_action(self, act, job_id): self.calls.append(("status", act, job_id))
+    status_jobs = [{"id": 1, "name": "Weekly sync", "state": "active", "stage": "x", "progress": 0.4, "when": "", "buttons": []}]
+    def overlay_status(self): return {"jobs": self.status_jobs, "canRecord": True}
+    def overlay_status_action(self, act, job_id, arg=None): self.calls.append(("status", act, job_id)); self.status_args = getattr(self, "status_args", []) + [arg]
     def overlay_docs(self): return {"docs": []}
     def overlay_docs_action(self, act, doc_id): self.calls.append(("docs", act, doc_id))
     def overlay_notes_info(self): return {"timeKey": "<cmd>+t", "timeLabel": "⌘T"}
@@ -179,6 +181,103 @@ class Popups(unittest.TestCase):
         pump(0.3)
         self.assertEqual(round(bar.frame().size.width), 64)
         self.assertIsNone(bar._morph)
+
+    def evaluate(self, js):
+        out = []
+        self.bar.status.surface.web.evaluateJavaScript_completionHandler_(js, lambda r, e: out.append(r if e is None else str(e)))
+        pump(0.25)
+        return out[0] if out else None
+
+    def finished_meeting(self, **extra):
+        samples = [{"start": 80.0, "end": 85.0, "text": "Can I add something on the vendor side?", "at": "01:20"}, {"start": 99.0, "end": 104.0, "text": "And one more thing.", "at": "01:39"}]
+        rows = [{"label": "Others 1", "name": "Budi", "by": "claude", "evidence": "Budi here", "at": "00:06", "lines": 2, "samples": samples, "sample": 0, "playing": False},
+                {"label": "Others 2", "name": None, "by": None, "evidence": None, "lines": 1, "samples": samples, "sample": 0, "playing": False}]
+        job = {"id": 1, "name": "Weekly sync", "state": "done", "stage": "done", "progress": 1.0, "when": "", "finished": 0, "mode": "full", "out": "/x", "folder": "/x",
+               "error": "", "steps": [], "speakers": rows, "speakersStale": False, "speakersChecked": True, "canPlay": True, "canName": True, **extra}
+        self.host.status_jobs = [job]
+        self.bar.status.open()
+        pump(0.3)
+
+    def test_a_finished_meeting_lists_its_speakers_and_the_buttons_reach_the_app(self):
+        self.finished_meeting()
+        self.assertEqual(self.evaluate("document.querySelector('.sph .r').textContent"), "2 others · 1 named")
+        self.assertFalse(self.evaluate("!!document.querySelector('.srow')"))  # collapsed to begin with
+        self.evaluate("document.querySelector('.sph').click()")
+        text = self.evaluate("document.querySelector('.spw').innerText")
+        self.assertIn("Budi", text)
+        self.assertIn("Who is this?", text)
+        self.assertIn("Can I add something on the vendor side?", text)  # a line to recognise the unnamed one by
+        self.assertIn("sample 1 of 2", text)
+        for selector, act in ((".nm.ask", "rename"), (".sp.pl", "play"), (".nx", "nextsample")):
+            self.evaluate(f"document.querySelector('{selector}').click()")
+        self.assertEqual([c[1] for c in self.host.calls if c[0] == "status"], ["rename", "play", "nextsample"])
+        self.assertEqual(self.host.status_args[0], "Others 2")
+
+    def open_menu_with_two_submenus(self):
+        self.host.menu_items = [
+            {"id": "style", "label": "Summary style", "sub": [{"id": "style:default", "label": "default", "checked": True}, {"id": "style:short", "label": "short", "checked": False}]},
+            {"id": "process", "label": "Process a meeting", "sub": [{"id": "transcribe", "label": "Transcribe a meeting…"}, {"id": "speakers", "label": "Name speakers in a meeting…"}, {"id": "summarize", "label": "Summarize a meeting…"}]},
+            {"divider": True},
+            {"id": "settings", "label": "Settings…"},
+        ]
+        self.bar.menu.toggle({"top": 340, "bottom": 384})
+        pump(0.4)
+
+    def menu_js(self, js):
+        out = []
+        self.bar.menu.surface.web.evaluateJavaScript_completionHandler_(js, lambda r, e: out.append(r if e is None else str(e)))
+        pump(0.25)
+        return out[0] if out else None
+
+    def test_the_menu_can_have_two_submenus_each_level_with_its_own_row(self):
+        self.open_menu_with_two_submenus()
+        self.assertEqual(self.menu_js("document.querySelectorAll('.row[data-sub]').length"), 2)
+        self.assertEqual(self.menu_js("document.querySelectorAll('.sub').length"), 2)
+        tops = self.menu_js("Array.from(document.querySelectorAll('.sub')).map(c => Math.round(c.getBoundingClientRect().top)).join(',')").split(",")
+        rows = self.menu_js("Array.from(document.querySelectorAll('.row[data-sub]')).map(r => Math.round(r.getBoundingClientRect().top)).join(',')").split(",")
+        self.assertEqual(int(tops[1]) - int(tops[0]), int(rows[1]) - int(rows[0]))  # the second sits as far below the first as its row does
+        self.assertGreater(int(rows[1]) - int(rows[0]), 20)
+
+    def test_hovering_a_row_opens_its_submenu_and_only_that_one(self):
+        self.open_menu_with_two_submenus()
+        shown = "Array.from(document.querySelectorAll('.sub')).map(c => c.classList.contains('on') ? 1 : 0).join('')"
+        self.assertEqual(self.menu_js(shown), "00")
+        self.menu_js("window.__setHoverRow(Number(document.querySelector('.row[data-sub=\"2\"]').dataset.hi))")
+        self.assertEqual(self.menu_js(shown), "01")
+        self.menu_js("window.__setHoverRow(Number(document.querySelector('.row[data-sub=\"1\"]').dataset.hi))")
+        self.assertEqual(self.menu_js(shown), "10")
+        self.menu_js("window.__setHoverRow(Number(document.querySelector('.menu .row[data-id=\"settings\"]').dataset.hi))")
+        self.assertEqual(self.menu_js(shown), "00")  # another row of the menu closes it
+
+    def test_a_row_of_a_submenu_reaches_the_app_and_the_style_still_shows_its_tick(self):
+        self.open_menu_with_two_submenus()
+        self.assertEqual(self.menu_js("document.querySelector('.sub[data-subid=\"1\"] .k').textContent"), "✓")
+        self.assertEqual(self.menu_js("document.querySelectorAll('.sub[data-subid=\"2\"] .k').length"), 0)  # no ticks in the other one
+        self.menu_js("document.querySelector('.row[data-id=\"speakers\"]').click()")
+        self.assertIn(("menu", "speakers"), self.host.calls)
+
+    def test_a_named_speakers_sample_line_is_shown_only_while_it_matters(self):
+        self.finished_meeting()
+        self.evaluate("document.querySelector('.sph').click()")
+        text = lambda: self.evaluate("Array.from(document.querySelectorAll('.srow')).map(r => (r.nextElementSibling && r.nextElementSibling.classList.contains('smp')) ? 1 : 0).join('')")
+        self.assertEqual(text(), "01")  # Budi (named) has no sample line, the unnamed Others 2 has
+        job = self.host.status_jobs[0]
+        job["speakers"][0]["showSample"] = True  # (the app says so once Next sample was pressed on the named speaker)
+        self.bar.status.render_tabs()
+        pump(0.3)
+        self.assertEqual(text(), "11")
+
+    def test_a_stale_summary_offers_to_be_updated_and_a_deleted_recording_dims_the_play_button(self):
+        self.finished_meeting(speakersStale=True, canPlay=False)
+        self.evaluate("document.querySelector('.sph').click()")
+        self.assertIn("Update summary", self.evaluate("document.querySelector('.spw').innerText"))
+        self.assertTrue(self.evaluate("document.querySelector('.sp.pl').classList.contains('off')"))
+        self.evaluate("document.querySelector('[data-act=resummarize]').click()")
+        self.assertEqual(self.host.calls[-1][1], "resummarize")
+
+    def test_a_meeting_without_other_speakers_shows_no_speakers_section(self):
+        self.finished_meeting(speakers=[])
+        self.assertFalse(self.evaluate("!!document.querySelector('.spw')"))
 
 
 if __name__ == "__main__":

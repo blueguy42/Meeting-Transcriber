@@ -10,11 +10,18 @@ from ..meetings import documents
 from ..meetings.audio import has_audio
 from ..meetings.meeting import Meeting
 from ..processing import control, progress
-from ..processing.pipeline import process, summarize_existing, transcribe_existing
+from ..processing.pipeline import name_existing, process, summarize_existing, transcribe_existing
 from ..summary.summarize import notes_lines
 from ..transcription import clear_checkpoint
 
 log = logging.getLogger(__name__)
+
+
+def naming_wanted_for_job(meeting, cfg) -> bool:
+    """Will the speakers be named after transcribing? (Whether the transcript has any is only known once it is written.)"""
+    from ..settings import config
+
+    return bool(cfg.name_speakers and cfg.diarize and config.find_claude(cfg))
 
 
 class ProcessingController:
@@ -64,33 +71,51 @@ class ProcessingController:
             return
         self.run_pipeline(meeting, transcribe_only=True)
 
-    def run_pipeline(self, meeting, summarize_only=False, transcribe_only=False):
+    def name_chosen(self):
+        """Pick a meeting folder and name its speakers: Claude reads the transcript (once); after that the speakers' row opens at once."""
+        meeting = self._choose_meeting("Choose a meeting folder whose speakers you want to name", "Choose")
+        if meeting is None:
+            return
+        cfg = self.app.reload_cfg()
+        if not meeting.has_transcript:
+            notify("Meeting Transcriber", "No transcript yet", "Transcribe the meeting first (More → Process a meeting → Transcribe…).")
+            return
+        from ..meetings import speakers
+
+        if not speakers.raw_labels(meeting, cfg):
+            notify("Meeting Transcriber", "No separate speakers", "The transcript does not tell the other people apart.")
+            return
+        self.run_pipeline(meeting, name_only=True)
+
+    def run_pipeline(self, meeting, summarize_only=False, transcribe_only=False, name_only=False):
         prompt = self.app.prompt
         cfg0 = self.app.reload_cfg()
         self.jobs.labels = (cfg0.my_label, cfg0.others_label)
-        reading = not (summarize_only or transcribe_only) and self.docs.pending(meeting) > 0  # a recording that has just stopped
+        quick = summarize_only or transcribe_only or name_only  # an existing meeting
+        reading = not quick and self.docs.pending(meeting) > 0  # a recording that has just stopped
         n_docs = len([x for x in documents.load(meeting) if x.get("status") in ("ready", "queued", "reading")]) if cfg0.use_documents else 0
         job = self.jobs.add(
             meeting.folder,
-            summarize=bool(cfg0.auto_summarize or summarize_only),  # (transcribing a meeting follows the auto-summarize setting)
-            transcribe=not (summarize_only and meeting.has_transcript),
-            recorded=not (summarize_only or transcribe_only),  # an existing meeting: no "Recorded" step
+            summarize=not name_only and bool(cfg0.auto_summarize or summarize_only),  # (transcribing a meeting follows the auto-summarize setting)
+            transcribe=not name_only and not (summarize_only and meeting.has_transcript),
+            recorded=not quick,  # an existing meeting: no "Recorded" step
             diarize=bool(cfg0.diarize),  # "Telling speakers apart" is a part of Transcribing
             notes=notes_lines(meeting, cfg0),
             documents=n_docs,
             reading=reading,  # the summary also reads the notes you took (shown under "Summarizing")
-            mode="summarize" if summarize_only else "transcribe" if transcribe_only else "full",
+            mode="name" if name_only else "summarize" if summarize_only else "transcribe" if transcribe_only else "full",
+            naming=bool(name_only or (not summarize_only and naming_wanted_for_job(meeting, cfg0))),  # Claude names the speakers once the transcript is written
         )
         on_main(self.app.presenter.open_status)
         log.info("Job queued: %s (summarize=%s, transcribe_only=%s, summarize_only=%s)", meeting.name, bool(cfg0.auto_summarize or summarize_only), transcribe_only, summarize_only)
 
-        self._start_job(job, meeting, summarize_only, transcribe_only, prompt, reading)
+        self._start_job(job, meeting, summarize_only, transcribe_only, prompt, reading, name_only)
 
-    def _start_job(self, job, meeting, summarize_only, transcribe_only, prompt, reading):
+    def _start_job(self, job, meeting, summarize_only, transcribe_only, prompt, reading, name_only=False):
         """Run (or, after a pause, run again) one meeting's processing on its own thread, one meeting at a time."""
         ctrl = control.JobControl()
         self.controls[job] = ctrl
-        self.jobargs[job] = (meeting, summarize_only, transcribe_only, prompt)
+        self.jobargs[job] = (meeting, summarize_only, transcribe_only, prompt, name_only)
 
         def say(text):
             if text == progress.DOCX:
@@ -112,7 +137,9 @@ class ProcessingController:
                     log.info("Job started: %s", meeting.name)
                     if reading:  # the summary needs the documents: wait for the ones still being read
                         self.docs.wait(meeting, lambda done, total: say(progress.reading_documents(done, total)))
-                    if transcribe_only:
+                    if name_only:
+                        new_meeting, out = name_existing(meeting, cfg, progress=say)
+                    elif transcribe_only:
                         new_meeting, out = transcribe_existing(meeting, cfg, prompt, progress=say)
                     elif summarize_only:
                         new_meeting, out = summarize_existing(meeting, cfg, prompt, progress=say)
@@ -148,13 +175,13 @@ class ProcessingController:
         info = self.jobs.job(job_id)
         if args is None or info is None or info["state"] != "paused":
             return
-        meeting, summarize_only, transcribe_only, prompt = args
+        meeting, summarize_only, transcribe_only, prompt, name_only = args
         at = info["paused_at"]
-        if at == "summarize":  # the transcript is done: only the summary is asked for again
+        if at in ("summarize", "naming") and not name_only:  # the transcript is done: only the summary is asked for again (it names the speakers first if they were not)
             summarize_only, transcribe_only = True, False
         self.jobs.resume(job_id)
         log.info("Job resumed at %s: %s", at, meeting.name)
-        self._start_job(job_id, meeting, summarize_only, transcribe_only, prompt, reading=(at == "readdocs"))
+        self._start_job(job_id, meeting, summarize_only, transcribe_only, prompt, reading=(at == "readdocs"), name_only=name_only)
 
     def pause_job(self, job_id: int) -> None:
         """Stop the step that is running (within a second or two); Resume carries on from there."""
@@ -167,8 +194,8 @@ class ProcessingController:
         state = job["state"]
         if state in ("active", "paused"):
             bring_to_front()
-            if alert("Stop processing this meeting?", "The recording is kept and you can process it again later (Transcribe a meeting… or "
-                     "Summarize a meeting…). Progress on the current step is lost.", ok="Keep going", cancel="Stop processing", destructive_second=True) != "second":
+            if alert("Stop processing this meeting?", "The recording is kept and you can process it again later (More → Process a meeting → Transcribe… or "
+                     "Summarize…). Progress on the current step is lost.", ok="Keep going", cancel="Stop processing", destructive_second=True) != "second":
                 return
         ctrl = self.controls.get(job_id)
         if state == "paused" or state == "queued":
@@ -184,7 +211,9 @@ class ProcessingController:
     def process_again(self, job: dict) -> None:
         meeting, mode = Meeting(job["folder"]), job["mode"]
         self.jobs.dismiss(job["id"])
-        if mode == "transcribe":
+        if mode == "name":
+            self.run_pipeline(meeting, name_only=True)
+        elif mode == "transcribe":
             self.run_pipeline(meeting, transcribe_only=True)
         elif mode == "summarize" or meeting.has_transcript:  # a finished transcript is kept
             self.run_pipeline(meeting, summarize_only=True)
